@@ -1,0 +1,17 @@
+# Environments
+.venv/
+.ipynb_checkpoints/
+
+# Data
+data/raw/*
+data/interim/*
+data/processed/*
+!data/.gitkeep
+
+# Reports
+reports/figures/*
+reports/tables/*
+reports/logs/*
+
+# OS
+.DS_Store

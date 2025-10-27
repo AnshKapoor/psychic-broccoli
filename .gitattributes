@@ -1,0 +1,52 @@
+# -------------------------------
+# Core settings
+# -------------------------------
+
+# Normalize line endings for all text files
+* text=auto eol=lf
+
+# Treat Python, YAML, Markdown, and notebooks as text for diffs
+*.py     text diff=python
+*.ipynb  text diff=ipynb
+*.md     text
+*.yaml   text
+*.yml    text
+
+# -------------------------------
+# Binary and data files
+# -------------------------------
+
+# Prevent Git from attempting text diffs on binary files
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.pdf  binary
+*.docx binary
+*.xlsx binary
+*.parquet binary
+*.pkl  binary
+*.joblib binary
+*.zip  binary
+
+# -------------------------------
+# GitHub syntax highlighting hints
+# -------------------------------
+
+# Make .yaml recognized as YAML and .yml equivalent
+*.yaml linguist-language=YAML
+*.yml  linguist-language=YAML
+
+# -------------------------------
+# Optional: Git LFS rules
+# -------------------------------
+# Uncomment these if using Git LFS (requires `git lfs install`)
+# *.csv filter=lfs diff=lfs merge=lfs -text
+# *.parquet filter=lfs diff=lfs merge=lfs -text
+# *.zip filter=lfs diff=lfs merge=lfs -text
+
+# -------------------------------
+# Notebook diff (optional)
+# -------------------------------
+# Use nbdime for cleaner notebook diffs if installed
+*.ipynb merge=jupyternotebook
