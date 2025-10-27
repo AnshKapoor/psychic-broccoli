@@ -1,1 +1,9 @@
-# Add your Python dependencies here
+pandas
+numpy
+scipy
+matplotlib
+traffic
+joblib
+pyyaml
+pyproj
+shapely
