@@ -8,15 +8,16 @@ validate aircraft types, and optionally visualise the resulting trajectories.
 import logging
 import os
 import re
+from calendar import month_name as calendar_month_name
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple
 
-import joblib
 import matplotlib.pyplot as plt
 import pandas as pd
 from traffic.data import aircraft
 
 from src.data.trajectory_preprocessing import preprocess_trajectory
+from src.utils.joblib_visualization import load_joblib_dataset
 
 # Configure logging at module import so pipeline runs report their progress.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -190,6 +191,52 @@ def calculate_time_windows(tlasmax: datetime, offsets: Tuple[int, int, int, int]
     return begin_time, plot_begin_time, end_time, plot_end_time
 
 
+MONTH_NAME_LOOKUP: Dict[int, str] = {
+    index: month.lower()
+    for index, month in enumerate(calendar_month_name)
+    if month
+}
+"""Mapping from numerical month values to lowercase month names."""
+
+
+def load_monthly_joblib_data(base_path: str, month: int) -> Any:
+    """Load the raw trajectory dataset for a specific month from joblib storage.
+
+    Parameters
+    ----------
+    base_path:
+        Directory containing the monthly ``.joblib`` files exported from the
+        ADS-B scraping pipeline.
+    month:
+        Numerical representation of the month (``1`` for January, ``12`` for
+        December).
+
+    Returns
+    -------
+    Any
+        Traffic data structure stored within the selected joblib archive.
+
+    Raises
+    ------
+    KeyError
+        If ``month`` is not present in :data:`MONTH_NAME_LOOKUP`.
+    FileNotFoundError
+        If the joblib file for the requested month does not exist inside
+        ``base_path``.
+    """
+
+    if month not in MONTH_NAME_LOOKUP:
+        raise KeyError(f"Unsupported month value: {month}")
+
+    # Build the filename following the repository naming convention.
+    filename: str = f"data_2022_{MONTH_NAME_LOOKUP[month]}.joblib"
+    joblib_path: str = os.path.join(base_path, filename)
+
+    # Delegate to the shared loader so the functionality can be reused by
+    # downstream tooling such as the visualisation helper.
+    return load_joblib_dataset(joblib_path)
+
+
 def process_aircraft(
     flight_search: Any,
     potential_flight: pd.DataFrame,
@@ -290,15 +337,17 @@ def find_trajectory(merged_data_path: str) -> pd.DataFrame:
     -------
     pd.DataFrame
         Concatenated collection of processed trajectories that match the
-        flights stored in the merged dataset. An empty DataFrame indicates that
-        no matching trajectories could be located.
+        flights stored in the merged dataset. The routine automatically pulls
+        the raw flight tracks from the monthly ``.joblib`` archives residing
+        alongside ``merged_data_path``. An empty DataFrame indicates that no
+        matching trajectories could be located.
     """
 
-    matched_flight = pd.read_csv(merged_data_path)
-    matched_flight = pd.DataFrame(matched_flight)
+    # Load the merged dataset that links noise events to individual flights.
+    matched_flight: pd.DataFrame = pd.read_csv(merged_data_path)
 
     joblib_data: Dict[int, Any] = {}
-    base_path = os.path.dirname(merged_data_path)
+    base_path: str = os.path.dirname(merged_data_path)
     all_processed_trajectories: List[pd.DataFrame] = []
 
     for idx, flight in matched_flight.iterrows():
@@ -311,23 +360,17 @@ def find_trajectory(merged_data_path: str) -> pd.DataFrame:
             type_code = flight['Flugzeugtyp']
             month = tlasmax.month
 
-            # if month not in joblib_data:
-            #     logging.warning(f'No trajectory data available for month: {month}')
-            #     continue
-
-            # else:
-            try:
-                month_name = {
-                    1: 'january'  # , 2: 'february', 3: 'march',
-                    # 4: 'april', 5: 'may', 6: 'june',
-                    # 7: 'july', 8: 'august', 9: 'september',
-                    # 10: 'october', 11: 'november', 12: 'december'
-                }
-                filename = f'data_2022_{month_name[month]}.joblib'
-                joblib_data[month] = joblib.load(os.path.join(base_path, filename))
-            except FileNotFoundError:
-                logging.warning(f'Can not find joblib file in {month}')
-                continue
+            # Load the relevant joblib file only once per month to avoid
+            # repeated disk IO during large batch runs.
+            if month not in joblib_data:
+                try:
+                    joblib_data[month] = load_monthly_joblib_data(base_path, month)
+                except FileNotFoundError:
+                    logging.warning(f'Can not find joblib file in {month}')
+                    continue
+                except KeyError:
+                    logging.warning(f"No joblib mapping configured for month: {month}")
+                    continue
 
             # Get coordinate ranges from the measurement point
             latitude_range, longitude_range = get_coordinate_range(mp, buffer=0.01)
