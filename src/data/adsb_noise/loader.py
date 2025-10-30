@@ -23,7 +23,12 @@ class ADSBBatchLoader(PipelineComponent):
         super().__init__(config)
 
     def load(self) -> pd.DataFrame:
-        """Return a concatenated ADS-B DataFrame assembled from ``.joblib`` batches."""
+        """Return a concatenated ADS-B :class:`~pandas.DataFrame` assembled from ``.joblib`` batches.
+
+        The loader gracefully tolerates missing identifier columns by only
+        sorting with the fields that are present, ensuring that data pulled from
+        heterogeneous sources can still be processed.
+        """
 
         adsb_dir: Path = self.config.adsb_dir
         joblib_files: List[Path] = sorted(adsb_dir.glob("*.joblib"))
@@ -68,9 +73,33 @@ class ADSBBatchLoader(PipelineComponent):
                 adsb_data["callsign"].astype(str).str.upper().str.strip().replace({"nan": pd.NA})
             )
 
+        # Ensure spatial and temporal coordinates exist before filtering rows with missing values.
         required_columns: List[str] = ["timestamp", "latitude", "longitude"]
-        adsb_data = adsb_data.dropna(subset=[col for col in required_columns if col in adsb_data.columns])
-        adsb_data = adsb_data.sort_values(by=["icao24", "callsign", "timestamp"], na_position="last")
+        existing_required_columns: List[str] = [col for col in required_columns if col in adsb_data.columns]
+        if existing_required_columns:
+            adsb_data = adsb_data.dropna(subset=existing_required_columns)
+        missing_required_columns: List[str] = [
+            column_name for column_name in required_columns if column_name not in adsb_data.columns
+        ]
+        if missing_required_columns:
+            self.logger.warning(
+                "ADS-B dataset missing required columns for validation: %s", missing_required_columns
+            )
+
+        # Sort the ADS-B points by the identifiers that are available to keep the
+        # chronological order stable even when optional columns are missing.
+        sort_priority_columns: List[str] = [
+            column_name
+            for column_name in ("icao24", "callsign", "timestamp")
+            if column_name in adsb_data.columns
+        ]
+        if sort_priority_columns:
+            adsb_data = adsb_data.sort_values(by=sort_priority_columns, na_position="last")
+        else:
+            self.logger.warning(
+                "ADS-B dataset missing expected identifier columns; skipping sort. Available columns: %s",
+                list(adsb_data.columns),
+            )
 
         if "day" in adsb_data.columns:
             adsb_data["day"] = pd.to_datetime(adsb_data["day"], errors="coerce").dt.date
