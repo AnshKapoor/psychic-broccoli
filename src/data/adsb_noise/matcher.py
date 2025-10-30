@@ -19,7 +19,7 @@ class FlightNoiseMatcher(PipelineComponent):
         super().__init__(config)
 
     def match(self, flights: pd.DataFrame, noise_data: pd.DataFrame) -> pd.DataFrame:
-        """Return merged data that includes matching flags and time deltas."""
+        """Return flight/noise matches with time deltas after enforcing sorted groupings."""
 
         if flights.empty:
             self.logger.warning("No flights available for matching.")
@@ -33,7 +33,7 @@ class FlightNoiseMatcher(PipelineComponent):
         flights["day"] = pd.to_datetime(flights["day"], errors="coerce").dt.date
         noise_data["day"] = pd.to_datetime(noise_data.get("day"), errors="coerce").dt.date
 
-        flights = flights[flights["runway_time"].notna()].sort_values("runway_time")
+        flights = flights[flights["runway_time"].notna()]
         noise_data = noise_data.sort_values("ATA/ATD")
 
         merged_frames: List[pd.DataFrame] = []
@@ -41,11 +41,18 @@ class FlightNoiseMatcher(PipelineComponent):
         runway_flights: pd.DataFrame = flights[flights["Runway"].notna()]
         runway_noise: pd.DataFrame = noise_data[noise_data["Runway"].notna()]
 
+        if not runway_flights.empty:
+            # Sort by the merge key and group-by columns to keep merge_asof deterministic.
+            runway_flights = runway_flights.sort_values(["A/D", "Runway", "day", "runway_time"])
+        if not runway_noise.empty:
+            # Matching on runway also requires the noise rows to respect the same ordering.
+            runway_noise = runway_noise.sort_values(["A/D", "Runway", "day", "ATA/ATD"])
+
         if not runway_flights.empty and not runway_noise.empty:
             # Prioritise matches where both sources agree on the runway identifier.
             runway_match = pd.merge_asof(
-                runway_flights.sort_values("runway_time"),
-                runway_noise.sort_values("ATA/ATD"),
+                runway_flights,
+                runway_noise,
                 left_on="runway_time",
                 right_on="ATA/ATD",
                 by=["A/D", "Runway", "day"],
@@ -56,11 +63,19 @@ class FlightNoiseMatcher(PipelineComponent):
             merged_frames.append(runway_match)
 
         fallback_flights: pd.DataFrame = flights[flights["Runway"].isna()]
+        fallback_noise: pd.DataFrame = noise_data.copy()
+
+        if not fallback_flights.empty:
+            # Sorting ensures merge_asof respects the A/D-day partitions even without runway data.
+            fallback_flights = fallback_flights.sort_values(["A/D", "day", "runway_time"])
+        if not fallback_noise.empty:
+            # The fallback noise rows need the identical ordering guarantees.
+            fallback_noise = fallback_noise.sort_values(["A/D", "day", "ATA/ATD"])
         if not fallback_flights.empty:
             # Fallback to matching solely on arrival/departure direction when runway is missing.
             fallback_match = pd.merge_asof(
-                fallback_flights.sort_values("runway_time"),
-                noise_data.sort_values("ATA/ATD"),
+                fallback_flights,
+                fallback_noise,
                 left_on="runway_time",
                 right_on="ATA/ATD",
                 by=["A/D", "day"],
