@@ -6,12 +6,26 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
 
 import pandas as pd
 
-from src.data.adsb_noise import ADSNoiseMerger, MergerConfig, resolve_config, set_active_config
+try:
+    # Attempt the standard package import when the project root is on ``sys.path``.
+    from src.data.adsb_noise import ADSNoiseMerger, MergerConfig, resolve_config, set_active_config
+except ModuleNotFoundError as import_error:
+    # Support executing the file directly (``python src/data/adsb_noise_merge.py``) by
+    # injecting the repository root into ``sys.path`` before re-importing the package.
+    PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.append(str(PROJECT_ROOT))
+    from src.data.adsb_noise import ADSNoiseMerger, MergerConfig, resolve_config, set_active_config
+
+    # Re-raise the original error if the import still fails to give clear diagnostics.
+    if "src" not in sys.modules:
+        raise import_error
 
 # %% Public orchestrator
 
