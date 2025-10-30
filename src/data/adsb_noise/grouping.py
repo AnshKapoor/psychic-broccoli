@@ -23,8 +23,12 @@ class FlightGrouper(PipelineComponent):
 
         required_columns = {"icao24", "callsign", "day"}
         if not required_columns.issubset(adsb_data.columns):
+            available_columns: List[str] = sorted(map(str, adsb_data.columns.tolist()))
             message: str = "ADS-B data must contain 'icao24', 'callsign', and 'day' columns."
-            self.logger.error(message)
+            self.logger.error("%s Available columns: %s", message, available_columns)
+            # Raising the KeyError preserves the existing control flow while
+            # providing the caller with the information necessary to diagnose
+            # unexpected data schemas quickly.
             raise KeyError(message)
 
         grouped_records: List[Dict[str, object]] = []

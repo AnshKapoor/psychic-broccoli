@@ -107,6 +107,22 @@ class ADSBBatchLoader(PipelineComponent):
         self.logger.info("Loaded %d ADS-B points from %d files.", len(adsb_data), len(frames))
         return adsb_data
 
+    def list_columns(self) -> List[str]:
+        """Return a sorted list of column names present in the ADS-B dataset.
+
+        Returns:
+            A list containing the unique column names discovered after loading
+            the ADS-B batches. The names are sorted alphabetically so they are
+            easy to scan when printed on the command line.
+        """
+
+        # Reuse the existing load routine so the column listing reflects every
+        # transformation and normalisation step applied by the loader.
+        adsb_data: pd.DataFrame = self.load()
+        column_names: List[str] = sorted(dict.fromkeys(map(str, adsb_data.columns.tolist())))
+        self.logger.info("ADS-B dataset exposes %d columns.", len(column_names))
+        return column_names
+
 
 class NoiseWorkbookLoader(PipelineComponent):
     """Load and normalise the noise workbook prior to matching."""

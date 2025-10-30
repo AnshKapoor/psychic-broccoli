@@ -8,13 +8,14 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Iterable, Optional, Tuple, Union
+from typing import Iterable, List, Optional, Tuple, Union
 
 import pandas as pd
 
 try:
     # Attempt the standard package import when the project root is on ``sys.path``.
     from src.data.adsb_noise import ADSNoiseMerger, MergerConfig, resolve_config, set_active_config
+    from src.data.adsb_noise.loader import ADSBBatchLoader
 except ModuleNotFoundError as import_error:
     # Support executing the file directly (``python src/data/adsb_noise_merge.py``) by
     # injecting the repository root into ``sys.path`` before re-importing the package.
@@ -22,6 +23,7 @@ except ModuleNotFoundError as import_error:
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.append(str(PROJECT_ROOT))
     from src.data.adsb_noise import ADSNoiseMerger, MergerConfig, resolve_config, set_active_config
+    from src.data.adsb_noise.loader import ADSBBatchLoader
 
     # Re-raise the original error if the import still fails to give clear diagnostics.
     if "src" not in sys.modules:
@@ -87,10 +89,26 @@ def parse_args(args: Optional[Iterable[str]] = None) -> argparse.Namespace:
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
         help="Logging level for the script's output.",
     )
+    parser.add_argument(
+        "--list-adsb-columns",
+        action="store_true",
+        help="Display all ADS-B column names after loading the dataset and exit.",
+    )
     return parser.parse_args(args=args)
 
 
 # %% CLI entry point
+
+def show_adsb_columns(config: MergerConfig) -> None:
+    """Print the ADS-B column names discovered via the configured loader."""
+
+    loader: ADSBBatchLoader = ADSBBatchLoader(config)
+    column_names: List[str] = loader.list_columns()
+    # Emit a friendly, sorted list to stdout so the CLI can be used as a quick
+    # inspection tool prior to running the full pipeline.
+    for column_name in column_names:
+        print(column_name)
+
 
 def main(cli_args: Optional[Iterable[str]] = None) -> None:
     """Execute the merge pipeline using command-line arguments."""
@@ -117,6 +135,10 @@ def main(cli_args: Optional[Iterable[str]] = None) -> None:
         log_level=log_level,
     )
     set_active_config(config)
+
+    if args.list_adsb_columns:
+        show_adsb_columns(config)
+        return
 
     merged_df: pd.DataFrame
     csv_path: str
