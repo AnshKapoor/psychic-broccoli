@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
@@ -7,7 +8,184 @@ import joblib
 import numpy as np
 import pandas as pd
 import pytz
+from pytz.exceptions import AmbiguousTimeError
 
+
+# Configure a module-level logger that can be reused by the helper functions.
+logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _detect_header_row(
+    rows: pd.DataFrame, expected_columns: Iterable[str]
+) -> Optional[int]:
+    """Return the row index that most closely matches the expected column names.
+
+    Notes
+    -----
+    The helper inspects each row until the expected columns are fully present.
+    Logging is used to highlight which sheet rows were evaluated.
+    """
+
+    # Normalise expected column names to a comparable representation.
+    expected = {col.strip().lower() for col in expected_columns}
+    for idx, row in rows.iterrows():
+        # Convert the row values to string for a robust comparison.
+        row_values = {str(value).strip().lower() for value in row.tolist() if pd.notna(value)}
+        if expected.issubset(row_values):
+            logger.debug("Detected header row %s with expected columns", idx)
+            return idx
+    logger.debug("Failed to detect header row containing %s", expected)
+    return None
+
+
+def _load_noise_excel(noise_excel: Union[str, Path]) -> pd.DataFrame:
+    """Load and tidy noise measurements from a workbook with multiple sheets.
+
+    Parameters
+    ----------
+    noise_excel:
+        Path to the formatted Excel workbook that may contain several measurement
+        point sheets (e.g., ``MP1`` through ``MP9``) and possibly decorative pages.
+
+    Returns
+    -------
+    pd.DataFrame
+        A concatenated DataFrame containing the cleaned noise records from every
+        recognised measurement-point sheet.
+    """
+
+    path = Path(noise_excel)
+
+    logger.info("Loading noise workbook from %s", path)
+
+    # Read every sheet without headers so we can locate the proper column row per sheet.
+    raw_sheets: Dict[str, pd.DataFrame] = pd.read_excel(path, sheet_name=None, header=None)
+
+    expected_columns: List[str] = [
+        "MP",
+        "TLASmax",
+        "Abstand [m]",
+    ]
+
+    cleaned_frames: List[pd.DataFrame] = []
+
+    for sheet_name, sheet_raw in raw_sheets.items():
+        # Skip sheets that do not correspond to measurement points (e.g., summary pages).
+        if not sheet_name.upper().startswith("MP"):
+            logger.debug("Skipping non-measurement sheet %s", sheet_name)
+            continue
+
+        header_row = _detect_header_row(sheet_raw, expected_columns)
+        if header_row is None:
+            # No valid table was found on this sheet, so skip quietly.
+            logger.warning("Sheet %s does not contain a recognised header row", sheet_name)
+            continue
+
+        df_sheet = pd.read_excel(path, sheet_name=sheet_name, header=header_row)
+
+        # Drop fully empty rows that frequently appear in formatted Excel sheets.
+        df_sheet = df_sheet.dropna(how="all").reset_index(drop=True)
+
+        # Ensure the measurement-point column exists even if the sheet omits it explicitly.
+        if "MP" not in df_sheet.columns:
+            df_sheet["MP"] = sheet_name
+
+        # Remove rows lacking essential identifiers while preserving measurement data.
+        if "MP" in df_sheet.columns:
+            df_sheet = df_sheet[df_sheet["MP"].notna()].copy()
+
+        if not df_sheet.empty:
+            logger.debug("Loaded %d rows from sheet %s", len(df_sheet), sheet_name)
+            cleaned_frames.append(df_sheet)
+
+    if not cleaned_frames:
+        raise ValueError(
+            "Unable to locate valid measurement data in any MP sheet of the workbook."
+        )
+
+    # Concatenate all measurement sheets into a single table for downstream processing.
+    df_noise = pd.concat(cleaned_frames, ignore_index=True)
+
+    logger.info("Loaded %d total noise rows", len(df_noise))
+
+    return df_noise
+
+
+def _localize_berlin(series: pd.Series) -> pd.Series:
+    """Convert naive timestamps to Europe/Berlin while resolving DST transitions.
+
+    Parameters
+    ----------
+    series:
+        pandas Series containing timezone-naive ``Timestamp`` objects that are
+        expressed in local Berlin time.
+
+    Returns
+    -------
+    pd.Series
+        A timezone-aware Series in the ``Europe/Berlin`` timezone where
+        ambiguous timestamps (e.g., the clock rollback hour) are coerced to the
+        standard-time occurrence so that downstream UTC conversion succeeds.
+    """
+
+    berlin_tz = pytz.timezone("Europe/Berlin")
+
+    try:
+        # Fast path where pandas can infer DST transitions automatically.
+        return series.dt.tz_localize(
+            berlin_tz, ambiguous="infer", nonexistent="shift_forward"
+        )
+    except AmbiguousTimeError:
+        # Fall back to a manual pass if ambiguous timestamps occur (e.g. DST end).
+        logger.warning("Encountered DST ambiguity; applying manual localisation fallback")
+        localized = series.dt.tz_localize(
+            berlin_tz, ambiguous="NaT", nonexistent="shift_forward"
+        )
+        ambiguous_mask = localized.isna() & series.notna()
+
+        if ambiguous_mask.any():
+            # For repeated times, assume the later (standard-time) occurrence.
+            logger.debug(
+                "Resolving %d ambiguous timestamps by assuming standard time",
+                ambiguous_mask.sum(),
+            )
+            localized.loc[ambiguous_mask] = series.loc[ambiguous_mask].apply(
+                lambda value: pd.Timestamp(
+                    berlin_tz.localize(value.to_pydatetime(), is_dst=False)
+                )
+            )
+
+        return localized
+
+
+def _load_adsb_joblib(adsb_joblib: Union[str, Path]) -> pd.DataFrame:
+    """Load ADS-B data from a Joblib file and return it as a DataFrame."""
+
+    path = Path(adsb_joblib)
+    logger.info("Loading ADS-B joblib payload from %s", path)
+    adsb_obj = joblib.load(path)
+
+    if isinstance(adsb_obj, pd.DataFrame):
+        df_ads = adsb_obj.copy()
+    elif isinstance(adsb_obj, (list, tuple)):
+        df_ads = pd.DataFrame(adsb_obj)
+    elif isinstance(adsb_obj, dict):
+        df_ads = pd.DataFrame(adsb_obj)
+    else:
+        raise TypeError(
+            "Unsupported ADS-B Joblib payload. Expected a pandas DataFrame, "
+            "a mapping, or an iterable of records."
+        )
+
+    if "timestamp" not in df_ads.columns:
+        raise KeyError("ADS-B dataset does not contain the required 'timestamp' column.")
+
+    # Ensure timestamps are timezone-aware UTC for matching operations.
+    df_ads["timestamp"] = pd.to_datetime(df_ads["timestamp"], utc=True)
+
+    logger.info("Loaded %d ADS-B records", len(df_ads))
+
+    return df_ads
 
 def _detect_header_row(rows: pd.DataFrame, expected_columns: Iterable[str]) -> Optional[int]:
     """Return the row index that most closely matches the expected column names."""
@@ -157,25 +335,28 @@ def match_noise_to_adsb(
         trajectory slices.
     """
 
+    logger.info("Starting noise to ADS-B matching workflow")
+
     # 1) Load and tidy the noise measurements from Excel.
     df_noise = _load_noise_excel(df_noise)
+    logger.debug("Noise dataframe columns: %s", df_noise.columns.tolist())
 
     if "TLASmax_UTC" in df_noise.columns:
         # The Excel sheet already provides UTC timestamps.
         df_noise["t_ref"] = pd.to_datetime(df_noise["TLASmax_UTC"], utc=True, errors="coerce")
+        logger.info("Detected pre-computed UTC timestamps in TLASmax_UTC column")
     else:
         # Fallback: convert the local TLASmax timestamps (Berlin time) to UTC.
         df_noise["TLASmax"] = pd.to_datetime(
             df_noise["TLASmax"], dayfirst=True, errors="coerce"
         )
-        berlin_tz = pytz.timezone("Europe/Berlin")
-        df_noise["t_ref"] = (
-            df_noise["TLASmax"].dt.tz_localize(berlin_tz, ambiguous="infer", nonexistent="shift_forward")
-            .dt.tz_convert(pytz.UTC)
-        )
+        localized = _localize_berlin(df_noise["TLASmax"])
+        df_noise["t_ref"] = localized.dt.tz_convert(pytz.UTC)
+        logger.info("Converted TLASmax values from local Berlin time to UTC")
 
     # Drop rows where the timestamp could not be parsed.
     df_noise = df_noise[df_noise["t_ref"].notna()].copy()
+    logger.info("Retained %d noise rows after timestamp parsing", len(df_noise))
 
     if "Abstand [m]" not in df_noise.columns:
         raise KeyError("Noise dataset does not contain the required 'Abstand [m]' column.")
@@ -203,14 +384,17 @@ def match_noise_to_adsb(
 
     # 2) Load ADS-B data from Joblib and ensure timestamps are in UTC.
     df_ads = _load_adsb_joblib(adsb_joblib)
+    logger.debug("ADS-B dataframe columns: %s", df_ads.columns.tolist())
 
     # 3) MP coordinates and bounding-box helper utilities.
     def parse_dms(dms_str: str) -> float:
-        """Convert a DMS coordinate string to decimal degrees."""
-        s = dms_str.replace("°"," ").replace("'"," ").replace("\""," ").strip()
+        """Convert a degrees/minutes/seconds coordinate string to decimal degrees."""
+
+        # Split the formatted string into components and compute the signed decimal value.
+        s = dms_str.replace("°", " ").replace("'", " ").replace("\"", " ").strip()
         deg, minu, sec, hemi = s.split()
-        dd = float(deg) + float(minu)/60 + float(sec)/3600
-        return -dd if hemi in ("S","W") else dd
+        dd = float(deg) + float(minu) / 60 + float(sec) / 3600
+        return -dd if hemi in ("S", "W") else dd
 
     mp_coords = {
       "M01": (parse_dms("52°27'13\"N"), parse_dms("9°45'37\"E")),
@@ -224,8 +408,11 @@ def match_noise_to_adsb(
       "M09": (parse_dms("52°28'06\"N"), parse_dms("9°37'09\"E")),
     }
 
-    def get_bbox(lat0: float, lon0: float, dist_m: float, buf_frac: float) -> Tuple[float, float, float, float]:
+    def get_bbox(
+        lat0: float, lon0: float, dist_m: float, buf_frac: float
+    ) -> Tuple[float, float, float, float]:
         """Return a latitude/longitude bounding box centred at the microphone."""
+
         r = dist_m * (1 + buf_frac)
         deg_lat = r / 111195.0
         deg_lon = deg_lat / np.cos(np.deg2rad(lat0))
@@ -234,7 +421,7 @@ def match_noise_to_adsb(
     # 4) Loop over noise rows, find ±tol_sec match, extract ±window_min trajectory
     tol = pd.Timedelta(seconds=tol_sec)
     win = pd.Timedelta(minutes=window_min)
-    trajs = []
+    trajs: List[pd.DataFrame] = []
 
     for i, row in df_noise.iterrows():
         # Iterate over every noise measurement, attempting to identify a matching flight.
@@ -243,6 +430,7 @@ def match_noise_to_adsb(
         dist = row["Abstand [m]"]
         lat0, lon0 = mp_coords.get(mp, (None, None))
         if lat0 is None:
+            logger.warning("Measurement point %s missing from coordinate map", mp)
             continue
 
         # spatial + time mask to identify flight
@@ -257,6 +445,7 @@ def match_noise_to_adsb(
         )
         hits = df_ads.loc[m1]
         if hits.empty:
+            logger.debug("No ADS-B hits found for MP %s at %s", mp, t0)
             continue
 
         # Stamp the noise row with the first matching aircraft identifiers.
@@ -264,6 +453,7 @@ def match_noise_to_adsb(
 
         df_noise.at[i, "icao24"]   = icao24
         df_noise.at[i, "callsign"] = callsign
+        logger.info("Matched MP %s at %s to aircraft %s (%s)", mp, t0, callsign, icao24)
 
         # extract the full ±window slice
         m2 = (
@@ -281,12 +471,19 @@ def match_noise_to_adsb(
 
     # 5) finalize
     df_traj = pd.concat(trajs, ignore_index=True) if trajs else pd.DataFrame()
+    logger.info("Constructed %d trajectory slices", len(trajs))
 
     # 6) optional write-out
     if out_noise_csv:
+        logger.info("Writing annotated noise data to %s", out_noise_csv)
         df_noise.to_csv(out_noise_csv, index=False)
     if out_traj_parquet and not df_traj.empty:
+        logger.info("Writing matched trajectory data to %s", out_traj_parquet)
         df_traj.to_parquet(out_traj_parquet, index=False)
+    elif out_traj_parquet:
+        logger.info("No trajectory data to write for %s", out_traj_parquet)
+
+    logger.info("Noise to ADS-B matching completed")
 
     return df_noise, df_traj
 
@@ -331,8 +528,20 @@ def main() -> None:
         default=3,
         help="Time window in minutes to extract around the reference timestamp.",
     )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        help="Logging level (e.g. DEBUG, INFO, WARNING).",
+    )
 
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper(), logging.INFO),
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
+    logger.debug("Initialised logging at %s level", args.log_level.upper())
 
     match_noise_to_adsb(
         df_noise=args.noise_excel,
