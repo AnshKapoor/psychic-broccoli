@@ -187,6 +187,111 @@ def _load_adsb_joblib(adsb_joblib: Union[str, Path]) -> pd.DataFrame:
 
     return df_ads
 
+def _detect_header_row(rows: pd.DataFrame, expected_columns: Iterable[str]) -> Optional[int]:
+    """Return the row index that most closely matches the expected column names."""
+
+    # Normalise expected column names to a comparable representation.
+    expected = {col.strip().lower() for col in expected_columns}
+    for idx, row in rows.iterrows():
+        # Convert the row values to string for a robust comparison.
+        row_values = {str(value).strip().lower() for value in row.tolist() if pd.notna(value)}
+        if expected.issubset(row_values):
+            return idx
+    return None
+
+
+def _load_noise_excel(noise_excel: Union[str, Path]) -> pd.DataFrame:
+    """Load and tidy noise measurements from a workbook with multiple sheets.
+
+    Parameters
+    ----------
+    noise_excel:
+        Path to the formatted Excel workbook that may contain several measurement
+        point sheets (e.g., ``MP1`` through ``MP9``) and possibly decorative pages.
+
+    Returns
+    -------
+    pd.DataFrame
+        A concatenated DataFrame containing the cleaned noise records from every
+        recognised measurement-point sheet.
+    """
+
+    path = Path(noise_excel)
+
+    # Read every sheet without headers so we can locate the proper column row per sheet.
+    raw_sheets: Dict[str, pd.DataFrame] = pd.read_excel(path, sheet_name=None, header=None)
+
+    expected_columns: List[str] = [
+        "MP",
+        "TLASmax",
+        "Abstand [m]",
+    ]
+
+    cleaned_frames: List[pd.DataFrame] = []
+
+    for sheet_name, sheet_raw in raw_sheets.items():
+        # Skip sheets that do not correspond to measurement points (e.g., summary pages).
+        if not sheet_name.upper().startswith("MP"):
+            continue
+
+        header_row = _detect_header_row(sheet_raw, expected_columns)
+        if header_row is None:
+            # No valid table was found on this sheet, so skip quietly.
+            continue
+
+        df_sheet = pd.read_excel(path, sheet_name=sheet_name, header=header_row)
+
+        # Drop fully empty rows that frequently appear in formatted Excel sheets.
+        df_sheet = df_sheet.dropna(how="all").reset_index(drop=True)
+
+        # Ensure the measurement-point column exists even if the sheet omits it explicitly.
+        if "MP" not in df_sheet.columns:
+            df_sheet["MP"] = sheet_name
+
+        # Remove rows lacking essential identifiers while preserving measurement data.
+        if "MP" in df_sheet.columns:
+            df_sheet = df_sheet[df_sheet["MP"].notna()].copy()
+
+        if not df_sheet.empty:
+            cleaned_frames.append(df_sheet)
+
+    if not cleaned_frames:
+        raise ValueError(
+            "Unable to locate valid measurement data in any MP sheet of the workbook."
+        )
+
+    # Concatenate all measurement sheets into a single table for downstream processing.
+    df_noise = pd.concat(cleaned_frames, ignore_index=True)
+
+    return df_noise
+
+
+def _load_adsb_joblib(adsb_joblib: Union[str, Path]) -> pd.DataFrame:
+    """Load ADS-B data from a Joblib file and return it as a DataFrame."""
+
+    path = Path(adsb_joblib)
+    adsb_obj = joblib.load(path)
+
+    if isinstance(adsb_obj, pd.DataFrame):
+        df_ads = adsb_obj.copy()
+    elif isinstance(adsb_obj, (list, tuple)):
+        df_ads = pd.DataFrame(adsb_obj)
+    elif isinstance(adsb_obj, dict):
+        df_ads = pd.DataFrame(adsb_obj)
+    else:
+        raise TypeError(
+            "Unsupported ADS-B Joblib payload. Expected a pandas DataFrame, "
+            "a mapping, or an iterable of records."
+        )
+
+    if "timestamp" not in df_ads.columns:
+        raise KeyError("ADS-B dataset does not contain the required 'timestamp' column.")
+
+    # Ensure timestamps are timezone-aware UTC for matching operations.
+    df_ads["timestamp"] = pd.to_datetime(df_ads["timestamp"], utc=True)
+
+    return df_ads
+
 
 def match_noise_to_adsb(
     df_noise: Union[str, Path],
