@@ -1,0 +1,29 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "noise_data.xlsx",
+                "adsb/data_2022_april.joblib",
+                "--noise-output",
+                "noise_with_matches.csv",
+                "--traj-output",
+                "matched_trajs.parquet",
+                "--tol-sec",
+                "10",
+                "--buffer-frac",
+                "1.5",
+                "--window-min",
+                "3"
+            ]
+        }
+    ]
+}
