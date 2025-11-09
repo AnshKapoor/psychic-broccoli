@@ -1,0 +1,59 @@
+#!/bin/bash -l
+#
+# ========= Phoenix / Slurm: merge ADS-B + noise =========
+# Uses your existing virtual environment: "psychic"
+# ========================================================
+
+#### ----- Slurm resources & naming -----
+#SBATCH --job-name=merge_adsb_noise
+#SBATCH --partition=standard
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4          # more threads for large data
+#SBATCH --mem=32G                   # large memory for Excel + joblib
+#SBATCH --time=24:00:00             # up to 24 hours
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
+
+# Optional notifications:
+##SBATCH --mail-type=END,FAIL
+##SBATCH --mail-user=y0113724@tu-braunschweig.de
+
+set -euo pipefail
+umask 027
+mkdir -p logs
+
+echo "[info] job=$SLURM_JOB_NAME id=$SLURM_JOB_ID node=$SLURM_JOB_NODELIST"
+echo "[info] cpus=$SLURM_CPUS_PER_TASK mem=$SLURM_MEM_PER_NODE partition=$SLURM_JOB_PARTITION"
+
+#### ----- Activate your venv -----
+# Make sure this matches the location of your existing environment
+# (for example, if created in your home folder)
+source ~/venvs/psychic/bin/activate
+
+# or if you placed it inside your project:
+# source ~/psychic-broccoli/.venv/psychic/bin/activate
+
+# Verify it's the right one
+which python
+python --version
+
+# Limit threading to match Slurm allocation
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+
+#### ----- Run your script -----
+cd /home/y0113724/psychic-broccoli
+
+mkdir -p logs/python
+
+srun python merge_adsb_noise.py \
+  noise_data.xlsx \
+  adsb/data_2022_april.joblib \
+  --noise-output noise_with_matches.csv \
+  --traj-output matched_trajs.parquet \
+  --tol-sec 10 \
+  --buffer-frac 1.5 \
+  --window-min 3
