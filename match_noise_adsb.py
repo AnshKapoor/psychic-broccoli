@@ -1,9 +1,15 @@
-import pandas as pd
-import numpy as np
-import joblib
+"""Utility script to match aircraft noise measurements with ADS-B trajectories."""
+
+import argparse
+import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Tuple, Optional, Dict, Any
+from typing import Any, Dict, Optional, Tuple
+
+import joblib
+import numpy as np
+import pandas as pd
 
 # ---------------------------
 # Helpers for robust Excel IO
@@ -16,18 +22,79 @@ HEADER_TOKENS = {
 }
 
 
-def _norm(s: Any) -> str:
-    s = "" if pd.isna(s) else str(s)
-    s = re.sub(r"[\u00A0\s]+", " ", s).strip().lower()
+logger = logging.getLogger(__name__)
+
+
+def setup_logging(log_file: Optional[str] = None) -> Path:
+    """Configure logging for the script and return the log file path.
+
+    Parameters
+    ----------
+    log_file:
+        Optional explicit log file path supplied via CLI. When omitted a
+        timestamped file will be created inside ``logs/python``.
+
+    Returns
+    -------
+    Path
+        Path to the log file that captures the execution details.
+    """
+
+    # Determine the log file destination while ensuring the directory exists.
+    if log_file:
+        log_path = Path(log_file)
+    else:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        log_dir = Path("logs") / "python"
+        log_path = log_dir / f"{timestamp}.log"
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+
+    # Remove stale handlers to prevent duplicate log entries on repeated runs.
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    root_logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(
+        logging.Formatter("%(levelname)s | %(message)s")
+    )
+    root_logger.addHandler(console_handler)
+
+    root_logger.debug("Logging initialised. Writing detailed log to %s", log_path)
+    return log_path
+
+
+def _norm(value: Any) -> str:
+    """Normalize header tokens by removing whitespace and harmonising accents."""
+
+    string_value: str = "" if pd.isna(value) else str(value)
+    string_value = re.sub(r"[\u00A0\s]+", " ", string_value).strip().lower()
     # unify common diacritics/variants that appear in headers
-    s = (s
-         .replace("ö", "o").replace("ä", "a").replace("ü", "u")
-         .replace("[", "").replace("]", ""))
-    return s
+    string_value = (
+        string_value
+        .replace("ö", "o").replace("ä", "a").replace("ü", "u")
+        .replace("[", "").replace("]", "")
+    )
+    return string_value
 
 
 def _looks_like_header(cells: list[str]) -> bool:
-    """Heuristic: a row is a header if it contains TLAS and enough known tokens."""
+    """Return ``True`` when a row resembles a header based on known tokens."""
+
     normed = [_norm(x) for x in cells]
     normed = [x for x in normed if x]
     if not normed:
@@ -51,6 +118,8 @@ def _looks_like_header(cells: list[str]) -> bool:
 
 def _read_noise_sheet_autoheader(excel_path: str, sheet_name: str) -> pd.DataFrame:
     """Read a sheet without assuming header row; detect it automatically."""
+
+    logger.debug("Reading sheet '%s' with automatic header detection", sheet_name)
     raw = pd.read_excel(excel_path, sheet_name=sheet_name, header=None, dtype=object)
 
     scan_rows = min(20, len(raw))
@@ -61,6 +130,7 @@ def _read_noise_sheet_autoheader(excel_path: str, sheet_name: str) -> pd.DataFra
             header_idx = r
             break
     if header_idx is None:
+        logger.debug("No explicit header row found in sheet '%s'; using first row", sheet_name)
         header_idx = 0  # fallback
 
     cols = raw.iloc[header_idx].astype(str).tolist()
@@ -92,42 +162,40 @@ def match_noise_to_adsb(
     buffer_frac: float = 0.5,
     window_min: int = 3,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Match Excel noise measurements (sheets MP1..MP9; decorative rows allowed) to ADS-B trajectories loaded from a joblib file.
+    """Match Excel noise measurements to ADS-B trajectories from a joblib file."""
 
-    Inputs
-    ------
-    noise_xlsx : path to Excel workbook with sheets MP1..MP9
-    adsb_joblib: path to joblib containing a pandas DataFrame with ADS-B points
-
-    Returns
-    -------
-    (df_noise_with_matches, concatenated_trajectory_slices)
-    """
-
-    print(f"\n📘 Reading Excel workbook (auto header detection): {noise_xlsx}")
+    logger.info("Reading Excel workbook with automatic header detection: %s", noise_xlsx)
     xls = pd.ExcelFile(noise_xlsx)
-    frames = []
+    frames: list[pd.DataFrame] = []
     for sheet in xls.sheet_names:
         df = _read_noise_sheet_autoheader(noise_xlsx, sheet)
-        print(f"  • Sheet '{sheet}': detected columns -> {list(df.columns)}")
+        logger.info("Detected %d columns in sheet '%s'", len(df.columns), sheet)
+        logger.debug("Sheet '%s' columns: %s", sheet, list(df.columns))
         frames.append(df)
 
     df_noise = pd.concat(frames, ignore_index=True)
 
     # Normalize MP labels like "M 01" -> "MP1"
-    def _normalize_mp(x: Any) -> str:
-        s = str(x)
-        s = re.sub(r"[\u00A0\s]+", " ", s).strip().upper()
-        s = s.replace("M ", "MP").replace("M0", "MP0").replace("M", "MP")
-        s = s.replace(" ", "")
-        if not s.startswith("MP"):
-            s = "MP" + s
-        s = re.sub(r"^MP0*([1-9]\d*)$", r"MP\1", s)  # MP01 -> MP1
-        return s
+    def _normalize_mp(value: Any) -> str:
+        """Return MP identifiers in canonical ``MP#`` form."""
+
+        string_value = str(value)
+        string_value = re.sub(r"[\u00A0\s]+", " ", string_value).strip().upper()
+        string_value = (
+            string_value
+            .replace("M ", "MP")
+            .replace("M0", "MP0")
+            .replace("M", "MP")
+            .replace(" ", "")
+        )
+        if not string_value.startswith("MP"):
+            string_value = "MP" + string_value
+        string_value = re.sub(r"^MP0*([1-9]\d*)$", r"MP\1", string_value)
+        return string_value
 
     mp_candidates = [c for c in df_noise.columns if _norm(c) == "mp"]
     mp_col = mp_candidates[0] if mp_candidates else "MP"
+    logger.debug("Using column '%s' for MP normalisation", mp_col)
     df_noise[mp_col] = df_noise[mp_col].apply(_normalize_mp)
     df_noise.rename(columns={mp_col: "MP"}, inplace=True)
 
@@ -135,7 +203,11 @@ def match_noise_to_adsb(
     tlas_cols = [c for c in df_noise.columns if re.search(r"tlas", _norm(c))]
     if not tlas_cols:
         tlas_col = df_noise.columns[min(8, len(df_noise.columns) - 1)]
-        print(f"⚠️  No header containing 'tlas' found. Falling back to column #8: '{tlas_col}'")
+        logger.warning(
+            "No column containing 'tlas' detected; defaulting to column #%d ('%s')",
+            min(8, len(df_noise.columns) - 1),
+            tlas_col,
+        )
     else:
         tlas_col = tlas_cols[0]
     df_noise.rename(columns={tlas_col: "TLASmax"}, inplace=True)
@@ -143,12 +215,13 @@ def match_noise_to_adsb(
     # Distance column
     dist_cols = [c for c in df_noise.columns if re.search(r"abstand", _norm(c))]
     dist_col = dist_cols[0] if dist_cols else "Abstand [m]"
+    logger.debug("Using distance column '%s'", dist_col)
     df_noise["Abstand [m]"] = pd.to_numeric(df_noise.get(dist_col, np.nan), errors="coerce")
 
     # ------------------------------
     # Parse timestamps (DST-safe)
     # ------------------------------
-    print("\n⏱️ Parsing TLASmax timestamps (DST-safe, vectorized) ...")
+    logger.info("Parsing TLASmax timestamps with DST-safe logic")
 
     # Parse TLASmax as naive datetime (no timezone yet)
     t_raw = pd.to_datetime(df_noise["TLASmax"], errors="coerce", dayfirst=True)
@@ -156,13 +229,14 @@ def match_noise_to_adsb(
     # 1) Localize to Europe/Berlin
     t_loc = t_raw.dt.tz_localize(
         "Europe/Berlin",
-        ambiguous="NaT",            # ambiguous fall-back hour -> NaT
-        nonexistent="shift_forward"  # spring-forward gap -> shift
+        ambiguous="NaT",  # ambiguous fall-back hour -> NaT
+        nonexistent="shift_forward",  # spring-forward gap -> shift
     )
 
     # 2) Retry ambiguous rows as DST (summer time)
     amb_mask = t_loc.isna() & t_raw.notna()
     if amb_mask.any():
+        logger.debug("Retrying %d ambiguous timestamps with DST assumption", int(amb_mask.sum()))
         t_retry = t_raw[amb_mask].dt.tz_localize(
             "Europe/Berlin",
             ambiguous=True,
@@ -173,9 +247,9 @@ def match_noise_to_adsb(
     # 3) Convert to UTC
     df_noise["t_ref"] = t_loc.dt.tz_convert("UTC")
 
-    num_bad = df_noise["t_ref"].isna().sum()
+    num_bad = int(df_noise["t_ref"].isna().sum())
     if num_bad:
-        print(f"⚠️  {num_bad} TLASmax rows could not be parsed/localized (NaT).")
+        logger.warning("%d TLASmax rows could not be parsed/localized (NaT).", num_bad)
 
     # Prepare match fields
     df_noise["icao24"] = pd.NA
@@ -184,53 +258,43 @@ def match_noise_to_adsb(
     # -------------------------
     # Load ADS-B (joblib DF) - *more* robust coercion & introspection
     # -------------------------
-    print(f"🛩️  Loading ADS-B joblib: {adsb_joblib}")
-    ads_obj: Any = joblib.load(adsb_joblib).data
-
-    
+    logger.info("Loading ADS-B joblib bundle: %s", adsb_joblib)
+    raw_ads_payload: Any = joblib.load(adsb_joblib)
+    ads_obj: Any = getattr(raw_ads_payload, "data", raw_ads_payload)
 
     def _inspect(obj: Any) -> str:
+        """Return a human readable description of arbitrary joblib payloads."""
+
         try:
             import numpy as _np
-            t = type(obj)
+            obj_type = type(obj)
             if isinstance(obj, dict):
                 keys = list(obj.keys())[:20]
-                return f"type={t.__name__}, dict_keys={keys}"
+                return f"type={obj_type.__name__}, dict_keys={keys}"
             if isinstance(obj, (list, tuple)):
-                return f"type={t.__name__}, len={len(obj)}, first_type={(type(obj[0]).__name__ if obj else None)}"
-            if 'DataFrame' in t.__name__:
+                first_type = type(obj[0]).__name__ if obj else None
+                return f"type={obj_type.__name__}, len={len(obj)}, first_type={first_type}"
+            if "DataFrame" in obj_type.__name__:
                 try:
-                    # polars/dask/pandas will all show shape
-                    shape = getattr(obj, 'shape', None)
-                    return f"type={t.__name__}, shape={shape}"
+                    shape = getattr(obj, "shape", None)
+                    return f"type={obj_type.__name__}, shape={shape}"
                 except Exception:
-                    return f"type={t.__name__}"
+                    return f"type={obj_type.__name__}"
             if isinstance(obj, _np.ndarray):
                 return f"type=np.ndarray, shape={obj.shape}, dtype={obj.dtype}"
-            return f"type={t.__name__}"
+            return f"type={obj_type.__name__}"
         except Exception:
             return f"type={type(obj)}"
 
     def _as_dataframe(obj: Any) -> pd.DataFrame:
-        """Best-effort conversion of various joblib payloads into a Pandas DataFrame.
-        Supported:
-          - pandas.DataFrame directly
-          - traffic.core.Traffic / Flight objects (use their .data DataFrame)
-          - dict containing a DataFrame (common keys 'df'/'data'/'adsb'/'table', or any DF value)
-          - tuple/list where first or all items are DataFrames (concatenate)
-          - list of dicts -> DataFrame
-          - numpy structured array / recarray -> DataFrame
-          - pyarrow.Table -> to_pandas()
-          - polars.DataFrame -> to_pandas()
-          - dask.dataframe.DataFrame -> .compute()
-          - path-like strings to parquet/csv -> read and return
-        """
+        """Convert a joblib payload into a Pandas DataFrame when possible."""
+
         # 0) traffic objects (duck-typed)
         try:
             if hasattr(obj, "data") and isinstance(getattr(obj, "data"), pd.DataFrame):
                 return getattr(obj, "data")
         except Exception:
-            pass
+            logger.debug("Failed to interpret payload as traffic object", exc_info=True)
 
         # 1) direct pandas
         if isinstance(obj, pd.DataFrame):
@@ -242,29 +306,29 @@ def match_noise_to_adsb(
             if isinstance(obj, pa.Table):
                 return obj.to_pandas()
         except Exception:
-            pass
+            logger.debug("pyarrow conversion unavailable", exc_info=True)
         try:
             import polars as pl  # type: ignore
             if isinstance(obj, pl.DataFrame):
                 return obj.to_pandas()
         except Exception:
-            pass
+            logger.debug("polars conversion unavailable", exc_info=True)
         try:
             import dask.dataframe as dd  # type: ignore
             if isinstance(obj, dd.DataFrame):
                 return obj.compute()
         except Exception:
-            pass
+            logger.debug("dask conversion unavailable", exc_info=True)
 
         # 3) dict containers
         if isinstance(obj, dict):
-            for k in ["df", "data", "adsb", "table"]:
-                if k in obj and isinstance(obj[k], pd.DataFrame):
-                    return obj[k]
-            for v in obj.values():
+            for key in ["df", "data", "adsb", "table"]:
+                if key in obj and isinstance(obj[key], pd.DataFrame):
+                    return obj[key]
+            for value in obj.values():
                 # nested conversions (e.g., dict holding a Traffic object)
                 try:
-                    return _as_dataframe(v)
+                    return _as_dataframe(value)
                 except Exception:
                     continue
             # dict of equal-length lists/arrays
@@ -273,22 +337,22 @@ def match_noise_to_adsb(
                 if not df_try.empty and df_try.columns.size > 1:
                     return df_try
             except Exception:
-                pass
+                logger.debug("Dict payload could not be converted directly", exc_info=True)
 
         # 4) list/tuple containers
         if isinstance(obj, (list, tuple)):
             # list of traffic Flight objects or any objects with .data
             try:
                 dfs = []
-                for x in obj:
-                    if hasattr(x, "data") and isinstance(getattr(x, "data"), pd.DataFrame):
-                        dfs.append(getattr(x, "data"))
+                for item in obj:
+                    if hasattr(item, "data") and isinstance(getattr(item, "data"), pd.DataFrame):
+                        dfs.append(getattr(item, "data"))
                 if dfs:
                     return pd.concat(dfs, ignore_index=True)
             except Exception:
-                pass
+                logger.debug("Failed to concatenate list of traffic objects", exc_info=True)
             # list of DFs
-            if all(isinstance(x, pd.DataFrame) for x in obj):
+            if all(isinstance(item, pd.DataFrame) for item in obj):
                 return pd.concat(list(obj), ignore_index=True)
             # first element DF
             if obj and isinstance(obj[0], pd.DataFrame):
@@ -300,7 +364,7 @@ def match_noise_to_adsb(
             try:
                 return pd.DataFrame(obj)
             except Exception:
-                pass
+                logger.debug("Generic list/tuple payload could not be converted", exc_info=True)
 
         # 5) numpy structured array / recarray
         try:
@@ -308,27 +372,27 @@ def match_noise_to_adsb(
             if isinstance(obj, _np.ndarray) and obj.dtype.names:
                 return pd.DataFrame(obj)
         except Exception:
-            pass
+            logger.debug("NumPy structured array conversion failed", exc_info=True)
 
         # 6) path-like payloads -> read parquet/csv
         if isinstance(obj, (str, Path)):
-            p = Path(obj)
-            if p.suffix.lower() in {'.parquet', '.pq'} and p.exists():
-                return pd.read_parquet(p)
-            if p.suffix.lower() in {'.csv'} and p.exists():
-                return pd.read_csv(p)
+            path_obj = Path(obj)
+            if path_obj.suffix.lower() in {".parquet", ".pq"} and path_obj.exists():
+                return pd.read_parquet(path_obj)
+            if path_obj.suffix.lower() in {".csv"} and path_obj.exists():
+                return pd.read_csv(path_obj)
 
         raise TypeError("Could not coerce joblib payload to DataFrame: " + _inspect(obj))
 
     try:
         df_ads = _as_dataframe(ads_obj).copy()
-    except Exception as e:
-        print("❌ Unsupported joblib payload:", _inspect(ads_obj))
+    except Exception as exc:
+        logger.error("Unsupported joblib payload: %s", _inspect(ads_obj))
         raise TypeError(
             "ADS-B joblib should contain a table-like object. Supported: pandas/pyarrow/polars/dask; "
             "dicts/lists/tuples holding those; numpy structured arrays; or a path to parquet/csv."
-            f"Details: {e}"
-        )
+            f" Details: {exc}"
+        ) from exc
 
     # Validate & normalize timestamp/geo columns
     required_cols = {"timestamp", "latitude", "longitude", "icao24", "callsign"}
@@ -344,22 +408,29 @@ def match_noise_to_adsb(
 
     df_ads["timestamp"] = pd.to_datetime(df_ads["timestamp"], utc=True, errors="coerce")
     df_ads = (
-        df_ads.dropna(subset=["timestamp", "latitude", "longitude"])\
-              .sort_values("timestamp").reset_index(drop=True)
+        df_ads.dropna(subset=["timestamp", "latitude", "longitude"])
+        .sort_values("timestamp")
+        .reset_index(drop=True)
     )
 
-    print(f"   → ADS-B rows: {len(df_ads):,}; columns: {list(df_ads.columns)}")
+    logger.info(
+        "ADS-B dataset contains %d rows and columns %s",
+        len(df_ads),
+        list(df_ads.columns),
+    )
 
     # ---------------------------------------
     # MP receiver coordinates (HAJ region)
     # ---------------------------------------
     def parse_dms(dms_str: str) -> float:
-        s = dms_str.replace("°", " ").replace("'", " ").replace('"', " ").strip()
-        deg, minu, sec, hemi = s.split()
-        dd = float(deg) + float(minu) / 60.0 + float(sec) / 3600.0
-        return -dd if hemi in ("S", "W") else dd
+        """Convert a DMS coordinate string into decimal degrees."""
 
-    mp_coords = {
+        cleaned = dms_str.replace("°", " ").replace("'", " ").replace('"', " ").strip()
+        deg, minu, sec, hemi = cleaned.split()
+        decimal_degrees = float(deg) + float(minu) / 60.0 + float(sec) / 3600.0
+        return -decimal_degrees if hemi in ("S", "W") else decimal_degrees
+
+    mp_coords: Dict[str, Tuple[float, float]] = {
         "MP1": (parse_dms('52°27\'13"N'), parse_dms('9°45\'37"E')),
         "MP2": (parse_dms('52°27\'57"N'), parse_dms('9°45\'02"E')),
         "MP3": (parse_dms('52°27\'60"N'), parse_dms('9°47\'25"E')),
@@ -371,11 +442,12 @@ def match_noise_to_adsb(
         "MP9": (parse_dms('52°28\'06"N'), parse_dms('9°37\'09"E')),
     }
 
-    def get_bbox(lat0: float, lon0: float, dist_m: float, buf_frac: float):
-        if pd.isna(dist_m) or dist_m <= 0:
-            dist_m = 1000.0
-        r = dist_m * (1.0 + buf_frac)
-        deg_lat = r / 111_195.0
+    def get_bbox(lat0: float, lon0: float, dist_m: float, buf_frac: float) -> Tuple[float, float, float, float]:
+        """Return latitude/longitude bounds for a circular search region."""
+
+        distance_metres = 1000.0 if pd.isna(dist_m) or dist_m <= 0 else dist_m
+        radius = distance_metres * (1.0 + buf_frac)
+        deg_lat = radius / 111_195.0
         deg_lon = deg_lat / np.cos(np.deg2rad(lat0))
         return lat0 - deg_lat, lat0 + deg_lat, lon0 - deg_lon, lon0 + deg_lon
 
@@ -384,7 +456,7 @@ def match_noise_to_adsb(
     # ------------------------------------------
     tol = pd.Timedelta(seconds=tol_sec)
     win = pd.Timedelta(minutes=window_min)
-    traj_slices = []
+    traj_slices: list[pd.DataFrame] = []
 
     for i, row in df_noise.iterrows():
         t0 = row.get("t_ref", pd.NaT)
@@ -403,6 +475,7 @@ def match_noise_to_adsb(
         m_time = (df_ads["timestamp"] >= (t0 - tol)) & (df_ads["timestamp"] <= (t0 + tol))
         cand = df_ads.loc[m_time]
         if cand.empty:
+            logger.debug("No ADS-B records within ±%ss for MP %s", tol_sec, mp)
             continue
 
         m_space = (
@@ -411,6 +484,7 @@ def match_noise_to_adsb(
         )
         hits = cand.loc[m_space]
         if hits.empty:
+            logger.debug("No spatial match for MP %s at %s", mp, t0)
             continue
 
         # Choose the closest-in-time hit
@@ -430,6 +504,7 @@ def match_noise_to_adsb(
         )
         sl = df_ads.loc[m2].copy()
         if sl.empty:
+            logger.debug("No trajectory slice for ICAO24=%s, callsign=%s", icao24, callsign)
             continue
         sl["MP"] = mp
         sl["t_ref"] = t0
@@ -443,37 +518,51 @@ def match_noise_to_adsb(
     if out_noise_csv:
         Path(out_noise_csv).parent.mkdir(parents=True, exist_ok=True)
         df_noise.to_csv(out_noise_csv, index=False, encoding="utf-8")
+        logger.info("Saved noise matches to %s", out_noise_csv)
 
     if out_traj_parquet and not df_traj.empty:
         Path(out_traj_parquet).parent.mkdir(parents=True, exist_ok=True)
         df_traj.to_parquet(out_traj_parquet, index=False)
+        logger.info("Saved trajectory slices to %s", out_traj_parquet)
+    elif out_traj_parquet:
+        logger.info("No trajectory slices produced; skipping parquet export to %s", out_traj_parquet)
 
     return df_noise, df_traj
 
 
-def main():
-    """Run the noise–ADS-B matching with your file paths and defaults."""
-    noise_file = "noise_data.xlsx"
-    adsb_file = "adsb/data_2022_april.joblib"
-    out_noise = "noise_with_matches.csv"
-    out_traj = "matched_trajs.parquet"
+def main() -> None:
+    """Parse CLI arguments, configure logging, and run the matching workflow."""
+
+    parser = argparse.ArgumentParser(description="Match noise measurements against ADS-B trajectories.")
+    parser.add_argument("--noise-xlsx", default="noise_data.xlsx", help="Path to the Excel workbook containing noise measurements.")
+    parser.add_argument("--adsb-joblib", default="adsb/data_2022_april.joblib", help="Path to the joblib file containing ADS-B data.")
+    parser.add_argument("--out-noise-csv", default="noise_with_matches.csv", help="Output CSV with matched noise observations.")
+    parser.add_argument("--out-traj-parquet", default="matched_trajs.parquet", help="Output parquet file with matched trajectory slices.")
+    parser.add_argument("--tol-sec", type=int, default=10, help="Temporal tolerance in seconds for matching.")
+    parser.add_argument("--buffer-frac", type=float, default=1.5, help="Spatial buffer fraction applied to the distance.")
+    parser.add_argument("--window-min", type=int, default=3, help="Half-width of the trajectory extraction window in minutes.")
+    parser.add_argument("--log-file", default=None, help="Optional path to the log file. Defaults to logs/python/<timestamp>.log")
+
+    args = parser.parse_args()
+
+    log_path = setup_logging(args.log_file)
+    logger.info("Writing detailed execution log to %s", log_path)
 
     df_noise, df_traj = match_noise_to_adsb(
-        noise_xlsx=noise_file,
-        adsb_joblib=adsb_file,
-        out_noise_csv=out_noise,
-        out_traj_parquet=out_traj,
-        tol_sec=10,
-        buffer_frac=1.5,
-        window_min=3,
+        noise_xlsx=args.noise_xlsx,
+        adsb_joblib=args.adsb_joblib,
+        out_noise_csv=args.out_noise_csv,
+        out_traj_parquet=args.out_traj_parquet,
+        tol_sec=args.tol_sec,
+        buffer_frac=args.buffer_frac,
+        window_min=args.window_min,
     )
 
-    print("\n✅ Matching completed.")
-    print(f"Matched noise events: {df_noise['icao24'].notna().sum()} / {len(df_noise)}")
-    print(f"Trajectory slice rows: {len(df_traj)}")
-    print("Outputs:")
-    print(f"  • {out_noise}")
-    print(f"  • {out_traj}")
+    matched_count = int(df_noise["icao24"].notna().sum())
+    logger.info("Matching completed successfully.")
+    logger.info("Matched noise events: %d / %d", matched_count, len(df_noise))
+    logger.info("Trajectory slice rows: %d", len(df_traj))
+    logger.info("Outputs saved to %s and %s", args.out_noise_csv, args.out_traj_parquet)
 
 
 if __name__ == "__main__":
