@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
@@ -13,6 +14,64 @@ from pytz.exceptions import AmbiguousTimeError
 
 # Configure a module-level logger that can be reused by the helper functions.
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def setup_logging(
+    log_file: Optional[Union[str, Path]] = None,
+    console_level: int = logging.INFO,
+) -> Path:
+    """Set up application-wide logging and return the selected log file path.
+
+    Parameters
+    ----------
+    log_file:
+        Optional explicit location for the log file. When ``None`` the helper
+        creates ``logs/python`` and generates a UTC timestamped file name.
+    console_level:
+        Logging level applied to the stream handler that mirrors key messages to
+        stdout (defaults to :data:`logging.INFO`).
+
+    Returns
+    -------
+    Path
+        The fully qualified path to the log file capturing detailed execution
+        information.
+    """
+
+    # Determine the log destination while creating the directory structure as needed.
+    if log_file is not None:
+        log_path = Path(log_file)
+    else:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        log_dir = Path("logs") / "python"
+        log_path = log_dir / f"{timestamp}.log"
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+
+    # Remove any leftover handlers from previous runs so we do not duplicate output.
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    root_logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(console_level)
+    console_handler.setFormatter(logging.Formatter("%(levelname)s | %(message)s"))
+    root_logger.addHandler(console_handler)
+
+    root_logger.debug("Initialised logging. Writing details to %s", log_path)
+    return log_path
 
 
 def _detect_header_row(
@@ -324,33 +383,38 @@ def match_noise_to_adsb(
 
     # 3) MP coordinates and bounding-box helper utilities.
     def parse_dms(dms_str: str) -> float:
-        """Convert a degrees/minutes/seconds coordinate string to decimal degrees."""
+        """Convert a DMS coordinate string (e.g. ``52°27'13"N``) into decimal degrees."""
 
-        # Split the formatted string into components and compute the signed decimal value.
-        s = dms_str.replace("°", " ").replace("'", " ").replace("\"", " ").strip()
-        deg, minu, sec, hemi = s.split()
-        dd = float(deg) + float(minu) / 60 + float(sec) / 3600
-        return -dd if hemi in ("S", "W") else dd
+        # Replace compass markers with space separators and split into components.
+        sanitized = (
+            dms_str.replace("°", " ").replace("'", " ").replace("\"", " ").strip()
+        )
+        deg_str, min_str, sec_str, hemisphere = sanitized.split()
+        degrees = float(deg_str) + float(min_str) / 60 + float(sec_str) / 3600
+        return -degrees if hemisphere in ("S", "W") else degrees
 
-    mp_coords = {
-      "M01": (parse_dms("52°27'13\"N"), parse_dms("9°45'37\"E")),
-      "M02": (parse_dms("52°27'57\"N"), parse_dms("9°45'02\"E")),
-      "M03": (parse_dms("52°27'60\"N"), parse_dms("9°47'25\"E")),
-      "M04": (parse_dms("52°27'19\"N"), parse_dms("9°48'48\"E")),
-      "M05": (parse_dms("52°28'05\"N"), parse_dms("9°49'57\"E")),
-      "M06": (parse_dms("52°27'14\"N"), parse_dms("9°37'31\"E")),
-      "M07": (parse_dms("52°27'40\"N"), parse_dms("9°34'55\"E")),
-      "M08": (parse_dms("52°28'07\"N"), parse_dms("9°32'48\"E")),
-      "M09": (parse_dms("52°28'06\"N"), parse_dms("9°37'09\"E")),
+    mp_coords: Dict[str, Tuple[float, float]] = {
+        "M01": (parse_dms("52°27'13\"N"), parse_dms("9°45'37\"E")),
+        "M02": (parse_dms("52°27'57\"N"), parse_dms("9°45'02\"E")),
+        "M03": (parse_dms("52°27'60\"N"), parse_dms("9°47'25\"E")),
+        "M04": (parse_dms("52°27'19\"N"), parse_dms("9°48'48\"E")),
+        "M05": (parse_dms("52°28'05\"N"), parse_dms("9°49'57\"E")),
+        "M06": (parse_dms("52°27'14\"N"), parse_dms("9°37'31\"E")),
+        "M07": (parse_dms("52°27'40\"N"), parse_dms("9°34'55\"E")),
+        "M08": (parse_dms("52°28'07\"N"), parse_dms("9°32'48\"E")),
+        "M09": (parse_dms("52°28'06\"N"), parse_dms("9°37'09\"E")),
     }
 
     def get_bbox(
-        lat0: float, lon0: float, dist_m: float, buf_frac: float
+        lat0: float,
+        lon0: float,
+        dist_m: float,
+        buf_frac: float,
     ) -> Tuple[float, float, float, float]:
         """Return a latitude/longitude bounding box centred at the microphone."""
 
-        r = dist_m * (1 + buf_frac)
-        deg_lat = r / 111195.0
+        radius = dist_m * (1 + buf_frac)
+        deg_lat = radius / 111_195.0
         deg_lon = deg_lat / np.cos(np.deg2rad(lat0))
         return lat0 - deg_lat, lat0 + deg_lat, lon0 - deg_lon, lon0 + deg_lon
 
@@ -409,13 +473,20 @@ def match_noise_to_adsb(
     df_traj = pd.concat(trajs, ignore_index=True) if trajs else pd.DataFrame()
     logger.info("Constructed %d trajectory slices", len(trajs))
 
+    matched_rows = int(df_noise["icao24"].notna().sum())
+    logger.info("Matched %d noise rows out of %d", matched_rows, len(df_noise))
+
     # 6) optional write-out
     if out_noise_csv:
-        logger.info("Writing annotated noise data to %s", out_noise_csv)
-        df_noise.to_csv(out_noise_csv, index=False)
+        out_noise_path = Path(out_noise_csv)
+        out_noise_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info("Writing annotated noise data to %s", out_noise_path)
+        df_noise.to_csv(out_noise_path, index=False)
     if out_traj_parquet and not df_traj.empty:
-        logger.info("Writing matched trajectory data to %s", out_traj_parquet)
-        df_traj.to_parquet(out_traj_parquet, index=False)
+        out_traj_path = Path(out_traj_parquet)
+        out_traj_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info("Writing matched trajectory data to %s", out_traj_path)
+        df_traj.to_parquet(out_traj_path, index=False)
     elif out_traj_parquet:
         logger.info("No trajectory data to write for %s", out_traj_parquet)
 
@@ -468,16 +539,23 @@ def main() -> None:
         "--log-level",
         type=str,
         default="INFO",
-        help="Logging level (e.g. DEBUG, INFO, WARNING).",
+        help="Console logging level (e.g. DEBUG, INFO, WARNING).",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        default=None,
+        help=(
+            "Optional explicit log file path. Defaults to logs/python/<timestamp>.log"
+        ),
     )
 
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
-    logger.debug("Initialised logging at %s level", args.log_level.upper())
+    console_level = getattr(logging, args.log_level.upper(), logging.INFO)
+    log_path = setup_logging(args.log_file, console_level=console_level)
+    logger.info("Writing detailed log to %s", log_path)
+    logger.info("Console log level set to %s", logging.getLevelName(console_level))
 
     match_noise_to_adsb(
         df_noise=args.noise_excel,
@@ -488,6 +566,8 @@ def main() -> None:
         buffer_frac=args.buffer_frac,
         window_min=args.window_min,
     )
+
+    logger.info("Merge process finished successfully")
 
 
 if __name__ == "__main__":
