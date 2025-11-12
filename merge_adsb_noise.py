@@ -288,6 +288,48 @@ def _load_adsb_joblib(adsb_joblib: Union[str, Path]) -> pd.DataFrame:
     return df_ads
 
 
+def _normalise_identifier(value: Any) -> Optional[str]:
+    """Convert raw ADS-B identifiers to clean uppercase strings or ``None``.
+
+    The helper copes with mixed input types that frequently appear in the
+    Joblib payloads. ``None``-like values and placeholder strings (e.g.,
+    ``"nan"``) are treated as missing. Valid identifiers are stripped of
+    surrounding whitespace and uppercased to provide a consistent format for
+    subsequent CSV/Parquet serialisation.
+
+    Parameters
+    ----------
+    value:
+        Arbitrary identifier pulled from the ADS-B frame. This may be a float,
+        integer, string, or even a pandas scalar object.
+
+    Returns
+    -------
+    Optional[str]
+        ``None`` when the identifier should be treated as missing, otherwise
+        the cleaned string representation.
+    """
+
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return None
+
+    # Convert pandas scalars (e.g., pd.NA) to native Python values first.
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        # ``pd.isna`` may raise when handed non-scalar objects; treat them as valid
+        # and fall through to the generic string conversion.
+        pass
+
+    normalised: str = str(value).strip().upper()
+
+    if normalised in {"", "NA", "NAN", "NONE"}:
+        return None
+
+    return normalised
+
+
 def match_noise_to_adsb(
     df_noise: Union[str, Path],
     adsb_joblib: Union[str, Path],
@@ -449,28 +491,60 @@ def match_noise_to_adsb(
             continue
 
         # Stamp the noise row with the first matching aircraft identifiers.
-        icao24, callsign = hits.iloc[0][["icao24", "callsign"]]
+        raw_icao24, raw_callsign = hits.iloc[0][["icao24", "callsign"]]
+        icao24_clean = _normalise_identifier(raw_icao24)
+        callsign_clean = _normalise_identifier(raw_callsign)
 
-        df_noise.at[i, "icao24"]   = icao24
-        df_noise.at[i, "callsign"] = callsign
-        logger.info("Matched MP %s at %s to aircraft %s (%s)", mp, t0, callsign, icao24)
+        if icao24_clean is None and callsign_clean is None:
+            logger.debug(
+                "Skipping assignment for MP %s at %s due to missing identifiers",
+                mp,
+                t0,
+            )
+            continue
+
+        df_noise.at[i, "icao24"] = icao24_clean if icao24_clean is not None else pd.NA
+        df_noise.at[i, "callsign"] = (
+            callsign_clean if callsign_clean is not None else pd.NA
+        )
+        logger.info(
+            "Matched MP %s at %s to aircraft %s (%s)",
+            mp,
+            t0,
+            callsign_clean,
+            icao24_clean,
+        )
 
         # extract the full ±window slice
         m2 = (
-          (df_ads.icao24   == icao24) &
-          (df_ads.callsign == callsign) &
           (df_ads.timestamp >= t0 - win) &
           (df_ads.timestamp <= t0 + win)
         )
+        if icao24_clean is not None:
+            m2 &= df_ads.icao24 == raw_icao24
+        if callsign_clean is not None:
+            m2 &= df_ads.callsign == raw_callsign
         slice6 = df_ads.loc[m2].copy()
         slice6["MP"]      = mp
         slice6["t_ref"]   = t0
-        slice6["icao24"]   = icao24
-        slice6["callsign"] = callsign
+        slice6["icao24"] = icao24_clean if icao24_clean is not None else pd.NA
+        slice6["callsign"] = (
+            callsign_clean if callsign_clean is not None else pd.NA
+        )
         trajs.append(slice6)
 
     # 5) finalize
+    for column_name in ("icao24", "callsign"):
+        if column_name in df_noise.columns:
+            # Enforce pandas' native string dtype so to_csv serialises the values
+            # instead of silently dropping them when mixed with missing entries.
+            df_noise[column_name] = df_noise[column_name].astype("string")
+
     df_traj = pd.concat(trajs, ignore_index=True) if trajs else pd.DataFrame()
+    if not df_traj.empty:
+        for column_name in ("icao24", "callsign"):
+            if column_name in df_traj.columns:
+                df_traj[column_name] = df_traj[column_name].astype("string")
     logger.info("Constructed %d trajectory slices", len(trajs))
 
     matched_rows = int(df_noise["icao24"].notna().sum())
