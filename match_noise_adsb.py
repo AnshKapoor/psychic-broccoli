@@ -153,6 +153,10 @@ def _read_noise_sheet_autoheader(excel_path: str, sheet_name: str) -> pd.DataFra
 # Core matching functionality
 # ---------------------------
 
+# Maximum number of matches to generate when ``test_mode`` is enabled.
+TEST_MODE_MATCH_LIMIT: int = 5
+
+
 def match_noise_to_adsb(
     noise_xlsx: str,
     adsb_joblib: str,
@@ -161,8 +165,30 @@ def match_noise_to_adsb(
     tol_sec: int = 10,
     buffer_frac: float = 0.5,
     window_min: int = 3,
+    test_mode: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Match Excel noise measurements to ADS-B trajectories from a joblib file."""
+    """Match Excel noise measurements to ADS-B trajectories from a joblib file.
+
+    Parameters
+    ----------
+    noise_xlsx:
+        Path to the Excel workbook that contains the noise measurements.
+    adsb_joblib:
+        Path to the joblib bundle storing ADS-B trajectories.
+    out_noise_csv:
+        Optional destination for the enriched noise CSV output.
+    out_traj_parquet:
+        Optional destination for the extracted trajectory slices.
+    tol_sec:
+        Temporal tolerance (in seconds) applied while searching ADS-B hits.
+    buffer_frac:
+        Spatial buffer fraction multiplied with the measurement distance.
+    window_min:
+        Half width (in minutes) of the trajectory extraction window.
+    test_mode:
+        When ``True`` the workflow exits after :data:`TEST_MODE_MATCH_LIMIT`
+        matches are found so that the early output can be inspected quickly.
+    """
 
     logger.info("Reading Excel workbook with automatic header detection: %s", noise_xlsx)
     xls = pd.ExcelFile(noise_xlsx)
@@ -409,6 +435,7 @@ def match_noise_to_adsb(
     df_ads["timestamp"] = pd.to_datetime(df_ads["timestamp"], utc=True, errors="coerce")
     df_ads = (
         df_ads.dropna(subset=["timestamp", "latitude", "longitude"])
+        .dropna(subset=["icao24", "callsign"], how="any")  # ensure identifiers are present
         .sort_values("timestamp")
         .reset_index(drop=True)
     )
@@ -457,6 +484,7 @@ def match_noise_to_adsb(
     tol = pd.Timedelta(seconds=tol_sec)
     win = pd.Timedelta(minutes=window_min)
     traj_slices: list[pd.DataFrame] = []
+    matches_found: int = 0  # track filled rows to support early exit in test mode
 
     for i, row in df_noise.iterrows():
         t0 = row.get("t_ref", pd.NaT)
@@ -494,6 +522,7 @@ def match_noise_to_adsb(
 
         df_noise.at[i, "icao24"] = icao24
         df_noise.at[i, "callsign"] = callsign
+        matches_found += 1
 
         # Extract ±window slice for that aircraft/callsign
         m2 = (
@@ -509,6 +538,13 @@ def match_noise_to_adsb(
         sl["MP"] = mp
         sl["t_ref"] = t0
         traj_slices.append(sl)
+
+        if test_mode and matches_found >= TEST_MODE_MATCH_LIMIT:
+            logger.info(
+                "Test mode active: stopping after %d matches to emit early output",
+                matches_found,
+            )
+            break
 
     df_traj = pd.concat(traj_slices, ignore_index=True) if traj_slices else pd.DataFrame()
 
@@ -542,6 +578,14 @@ def main() -> None:
     parser.add_argument("--buffer-frac", type=float, default=1.5, help="Spatial buffer fraction applied to the distance.")
     parser.add_argument("--window-min", type=int, default=3, help="Half-width of the trajectory extraction window in minutes.")
     parser.add_argument("--log-file", default=None, help="Optional path to the log file. Defaults to logs/python/<timestamp>.log")
+    parser.add_argument(
+        "--test-mode",
+        action="store_true",
+        help=(
+            "Enable early-exit test mode that writes outputs once the first "
+            f"{TEST_MODE_MATCH_LIMIT} matches are available."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -556,6 +600,7 @@ def main() -> None:
         tol_sec=args.tol_sec,
         buffer_frac=args.buffer_frac,
         window_min=args.window_min,
+        test_mode=args.test_mode,
     )
 
     matched_count = int(df_noise["icao24"].notna().sum())
