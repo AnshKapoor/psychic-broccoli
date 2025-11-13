@@ -330,6 +330,37 @@ def _normalise_identifier(value: Any) -> Optional[str]:
     return normalised
 
 
+def parse_bool(value: Union[str, bool, int]) -> bool:
+    """Return a Python ``bool`` from flexible user-provided representations.
+
+    Parameters
+    ----------
+    value:
+        Input value that should be interpreted as ``True`` or ``False``. Strings
+        such as ``"true"``, ``"1"``, and ``"yes"`` are recognised in a
+        case-insensitive manner. Integers behave like Python truthiness rules.
+
+    Returns
+    -------
+    bool
+        The normalised boolean result suitable for configuring CLI flags or
+        environment-driven toggles.
+    """
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    normalized = str(value).strip().lower()
+    truthy = {"1", "true", "t", "yes", "y", "on"}
+    falsy = {"0", "false", "f", "no", "n", "off", ""}
+    if normalized in truthy:
+        return True
+    if normalized in falsy:
+        return False
+    raise ValueError(f"Cannot interpret value '{value}' as boolean")
+
+
 def match_noise_to_adsb(
     df_noise: Union[str, Path],
     adsb_joblib: Union[str, Path],
@@ -337,7 +368,9 @@ def match_noise_to_adsb(
     out_traj_parquet: Optional[Union[str, Path]] = None,
     tol_sec: int = 10,
     buffer_frac: float = 0.5,
-    window_min: int = 3
+    window_min: int = 3,
+    test_mode: bool = False,
+    test_mode_match_limit: int = 5,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Match noise measurements from an Excel file to ADS-B trajectories loaded from Joblib.
@@ -364,6 +397,14 @@ def match_noise_to_adsb(
     window_min:
         Size of the time window in minutes to extract the matched trajectory
         segment around the reference timestamp.
+
+    test_mode:
+        When ``True`` the loop stops after ``test_mode_match_limit`` matches and
+        immediately writes output files so the workflow can be smoke-tested
+        quickly. Set to ``False`` (default) for full-batch processing.
+    test_mode_match_limit:
+        Maximum number of matched noise rows to process before exiting in test
+        mode. Ignored when ``test_mode`` is disabled.
 
     Returns
     -------
@@ -465,6 +506,9 @@ def match_noise_to_adsb(
     win = pd.Timedelta(minutes=window_min)
     trajs: List[pd.DataFrame] = []
 
+    # Track successful matches so the optional test-mode limit can terminate early.
+    matches_found: int = 0
+
     for i, row in df_noise.iterrows():
         # Iterate over every noise measurement, attempting to identify a matching flight.
         t0 = row["t_ref"]
@@ -507,6 +551,7 @@ def match_noise_to_adsb(
         df_noise.at[i, "callsign"] = (
             callsign_clean if callsign_clean is not None else pd.NA
         )
+        matches_found += 1
         logger.info(
             "Matched MP %s at %s to aircraft %s (%s)",
             mp,
@@ -533,6 +578,14 @@ def match_noise_to_adsb(
         )
         trajs.append(slice6)
 
+        if test_mode and matches_found >= test_mode_match_limit:
+            # Exit the processing loop once the desired preview count is reached.
+            logger.info(
+                "Test mode enabled: collected %d matches; stopping early.",
+                matches_found,
+            )
+            break
+
     # 5) finalize
     for column_name in ("icao24", "callsign"):
         if column_name in df_noise.columns:
@@ -554,8 +607,14 @@ def match_noise_to_adsb(
     if out_noise_csv:
         out_noise_path = Path(out_noise_csv)
         out_noise_path.parent.mkdir(parents=True, exist_ok=True)
-        logger.info("Writing annotated noise data to %s", out_noise_path)
-        df_noise.to_csv(out_noise_path, index=False)
+        # Suppress rows lacking identifiers so the CSV mirrors only confirmed matches.
+        export_noise = df_noise[
+            df_noise["icao24"].notna() | df_noise["callsign"].notna()
+        ].copy()
+        logger.info(
+            "Writing %d matched noise rows to %s", len(export_noise), out_noise_path
+        )
+        export_noise.to_csv(out_noise_path, index=False)
     if out_traj_parquet and not df_traj.empty:
         out_traj_path = Path(out_traj_parquet)
         out_traj_path.parent.mkdir(parents=True, exist_ok=True)
@@ -623,6 +682,23 @@ def main() -> None:
             "Optional explicit log file path. Defaults to logs/python/<timestamp>.log"
         ),
     )
+    parser.add_argument(
+        "--test-mode",
+        type=parse_bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help=(
+            "Enable early exit after a limited number of matches. Accepts true/false "
+            "values; omitting the value defaults to true."
+        ),
+    )
+    parser.add_argument(
+        "--test-mode-match-limit",
+        type=int,
+        default=5,
+        help="Maximum matches to collect before stopping when test mode is active.",
+    )
 
     args = parser.parse_args()
 
@@ -639,6 +715,8 @@ def main() -> None:
         tol_sec=args.tol_sec,
         buffer_frac=args.buffer_frac,
         window_min=args.window_min,
+        test_mode=args.test_mode,
+        test_mode_match_limit=args.test_mode_match_limit,
     )
 
     logger.info("Merge process finished successfully")
