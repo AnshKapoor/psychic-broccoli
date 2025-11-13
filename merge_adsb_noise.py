@@ -400,8 +400,9 @@ def match_noise_to_adsb(
         Size of the time window in minutes to extract the matched trajectory
         segment around the reference timestamp.
     dedupe_traj:
-        When ``True`` (default) overlapping ADS-B samples per ``icao24`` and
-        ``timestamp`` are deduplicated to keep clustering inputs tidy.
+        When ``True`` (default) overlapping ADS-B samples per measurement
+        context (``MP``, ``t_ref``, ``icao24``, ``timestamp``) are deduplicated to
+        keep clustering inputs tidy without discarding distinct microphone views.
 
     test_mode:
         When ``True`` the loop stops after ``test_mode_match_limit`` matches and
@@ -669,7 +670,14 @@ def match_noise_to_adsb(
     df_traj = pd.concat(trajs, ignore_index=True) if trajs else pd.DataFrame()
     if not df_traj.empty:
         if dedupe_traj:
-            key_cols = [c for c in ["icao24", "timestamp"] if c in df_traj.columns]
+            # Include the measurement context (MP/t_ref) in the dedupe key so distinct
+            # microphones observing the same aircraft at the same instant retain their
+            # individual slices while still removing true duplicates within a slice.
+            key_cols = [
+                c
+                for c in ["MP", "t_ref", "icao24", "timestamp"]
+                if c in df_traj.columns
+            ]
             if key_cols:
                 df_traj = (
                     df_traj.sort_values(key_cols).drop_duplicates(subset=key_cols, keep="first")
