@@ -10,6 +10,12 @@ from typing import Any, Dict, Optional, Tuple
 import joblib
 import numpy as np
 import pandas as pd
+from pyproj import Transformer
+
+try:
+    from traffic.data import aircraft as aircraft_db
+except ImportError:  # pragma: no cover - optional dependency
+    aircraft_db = None
 
 # ---------------------------
 # Helpers for robust Excel IO
@@ -160,12 +166,12 @@ TEST_MODE_MATCH_LIMIT: int = 5
 def match_noise_to_adsb(
     noise_xlsx: str,
     adsb_joblib: str,
-    out_noise_csv: Optional[str] = None,
     out_traj_parquet: Optional[str] = None,
     tol_sec: int = 10,
     buffer_frac: float = 0.5,
     window_min: int = 3,
     test_mode: bool = False,
+    dedupe_traj: bool = True,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Match Excel noise measurements to ADS-B trajectories from a joblib file.
 
@@ -175,8 +181,6 @@ def match_noise_to_adsb(
         Path to the Excel workbook that contains the noise measurements.
     adsb_joblib:
         Path to the joblib bundle storing ADS-B trajectories.
-    out_noise_csv:
-        Optional destination for the enriched noise CSV output.
     out_traj_parquet:
         Optional destination for the extracted trajectory slices.
     tol_sec:
@@ -188,6 +192,15 @@ def match_noise_to_adsb(
     test_mode:
         When ``True`` the workflow exits after :data:`TEST_MODE_MATCH_LIMIT`
         matches are found so that the early output can be inspected quickly.
+    dedupe_traj:
+        When ``True`` identical trajectory points keyed by ``icao24`` and
+        ``timestamp`` will be dropped to produce a clean, deduplicated output.
+
+    Notes
+    -----
+    The extracted trajectory slices are automatically trimmed to a 5 km radius
+    around the Hanover Airport centre and annotated with noise/ADS-B aircraft
+    type metadata to support downstream clustering tasks.
     """
 
     logger.info("Reading Excel workbook with automatic header detection: %s", noise_xlsx)
@@ -200,6 +213,13 @@ def match_noise_to_adsb(
         frames.append(df)
 
     df_noise = pd.concat(frames, ignore_index=True)
+
+    # Retain aircraft type column from Excel and normalise into ``aircraft_type_noise``.
+    if "Flugzeugtyp" in df_noise.columns:
+        df_noise["aircraft_type_noise"] = df_noise["Flugzeugtyp"].astype("string")
+    else:
+        df_noise["aircraft_type_noise"] = pd.NA
+    df_noise["aircraft_type_noise"] = df_noise["aircraft_type_noise"].astype("string")
 
     # Normalize MP labels like "M 01" -> "MP1"
     def _normalize_mp(value: Any) -> str:
@@ -280,6 +300,8 @@ def match_noise_to_adsb(
     # Prepare match fields
     df_noise["icao24"] = pd.NA
     df_noise["callsign"] = pd.NA
+    df_noise["aircraft_type_adsb"] = pd.NA
+    df_noise["aircraft_type_match"] = pd.NA
 
     # -------------------------
     # Load ADS-B (joblib DF) - *more* robust coercion & introspection
@@ -469,6 +491,22 @@ def match_noise_to_adsb(
         "MP9": (parse_dms('52°28\'06"N'), parse_dms('9°37\'09"E')),
     }
 
+    # Reference point at the HAJ aerodrome centre used for 5 km filtering.
+    airport_center: Tuple[float, float] = (
+        parse_dms('52°27\'36.77"N'),
+        parse_dms('9°41\'00.68"E'),
+    )
+    transformer = Transformer.from_crs("epsg:4326", "epsg:32632", always_xy=True)
+    ax, ay = transformer.transform(airport_center[1], airport_center[0])
+
+    def distance_to_airport(lat: pd.Series, lon: pd.Series) -> pd.Series:
+        """Return Euclidean distance (metres) from series of coordinates to the airport centre."""
+
+        x, y = transformer.transform(lon.to_numpy(), lat.to_numpy())
+        dx = x - ax
+        dy = y - ay
+        return np.sqrt(dx * dx + dy * dy)
+
     def get_bbox(lat0: float, lon0: float, dist_m: float, buf_frac: float) -> Tuple[float, float, float, float]:
         """Return latitude/longitude bounds for a circular search region."""
 
@@ -522,6 +560,29 @@ def match_noise_to_adsb(
 
         df_noise.at[i, "icao24"] = icao24
         df_noise.at[i, "callsign"] = callsign
+
+        icao24_clean = str(icao24).strip().lower() if pd.notna(icao24) else ""
+        callsign_clean = str(callsign).strip().upper() if pd.notna(callsign) else ""
+        aircraft_type_adsb: Optional[str] = None
+
+        if aircraft_db is not None:
+            ac = None
+            if icao24_clean:
+                ac = aircraft_db.get(icao24_clean)
+            if ac is None and callsign_clean:
+                ac = aircraft_db.get(callsign_clean)
+
+            if ac is not None:
+                aircraft_type_adsb = getattr(ac, "typecode", None) or getattr(ac, "model", None)
+
+        if aircraft_type_adsb:
+            df_noise.at[i, "aircraft_type_adsb"] = str(aircraft_type_adsb)
+
+        noise_type = df_noise.at[i, "aircraft_type_noise"]
+        if pd.notna(noise_type) and aircraft_type_adsb:
+            df_noise.at[i, "aircraft_type_match"] = (
+                str(noise_type).strip().upper() == str(aircraft_type_adsb).strip().upper()
+            )
         matches_found += 1
 
         # Extract ±window slice for that aircraft/callsign
@@ -535,8 +596,19 @@ def match_noise_to_adsb(
         if sl.empty:
             logger.debug("No trajectory slice for ICAO24=%s, callsign=%s", icao24, callsign)
             continue
+
+        if not sl.empty and {"latitude", "longitude"}.issubset(sl.columns):
+            sl["dist_to_airport_m"] = distance_to_airport(sl["latitude"], sl["longitude"])
+            sl = sl[sl["dist_to_airport_m"] <= 5000.0].copy()
+
+        if sl.empty:
+            continue
+
         sl["MP"] = mp
         sl["t_ref"] = t0
+        sl["aircraft_type_noise"] = df_noise.at[i, "aircraft_type_noise"]
+        sl["aircraft_type_adsb"] = df_noise.at[i, "aircraft_type_adsb"]
+        sl["aircraft_type_match"] = df_noise.at[i, "aircraft_type_match"]
         traj_slices.append(sl)
 
         if test_mode and matches_found >= TEST_MODE_MATCH_LIMIT:
@@ -546,16 +618,50 @@ def match_noise_to_adsb(
             )
             break
 
+    df_noise["aircraft_type_adsb"] = df_noise["aircraft_type_adsb"].astype("string")
+    df_noise["aircraft_type_match"] = df_noise["aircraft_type_match"].astype("boolean")
+
     df_traj = pd.concat(traj_slices, ignore_index=True) if traj_slices else pd.DataFrame()
+
+    if dedupe_traj and not df_traj.empty:
+        # Remove overlapping ADS-B samples that share the same aircraft/timestamp pair.
+        key_cols = [c for c in ["icao24", "timestamp"] if c in df_traj.columns]
+        if key_cols:
+            df_traj = (
+                df_traj.sort_values(key_cols)
+                .drop_duplicates(subset=key_cols, keep="first")
+            )
+        df_traj = df_traj.reset_index(drop=True)
+
+    if not df_traj.empty:
+        # Guarantee downstream consumers see the canonical column set even when
+        # the underlying ADS-B export lacks certain optional signals.
+        desired_cols = [
+            "timestamp",
+            "latitude",
+            "longitude",
+            "altitude",
+            "geoaltitude",
+            "baro_altitude",
+            "groundspeed",
+            "vertical_rate",
+            "track",
+            "icao24",
+            "callsign",
+            "MP",
+            "t_ref",
+            "aircraft_type_noise",
+            "aircraft_type_adsb",
+            "aircraft_type_match",
+            "dist_to_airport_m",
+        ]
+        for col in desired_cols:
+            if col not in df_traj.columns:
+                df_traj[col] = pd.NA
 
     # -----------------
     # Finalize / save
     # -----------------
-    if out_noise_csv:
-        Path(out_noise_csv).parent.mkdir(parents=True, exist_ok=True)
-        df_noise.to_csv(out_noise_csv, index=False, encoding="utf-8")
-        logger.info("Saved noise matches to %s", out_noise_csv)
-
     if out_traj_parquet and not df_traj.empty:
         Path(out_traj_parquet).parent.mkdir(parents=True, exist_ok=True)
         df_traj.to_parquet(out_traj_parquet, index=False)
@@ -572,12 +678,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Match noise measurements against ADS-B trajectories.")
     parser.add_argument("--noise-xlsx", default="noise_data.xlsx", help="Path to the Excel workbook containing noise measurements.")
     parser.add_argument("--adsb-joblib", default="adsb/data_2022_april.joblib", help="Path to the joblib file containing ADS-B data.")
-    parser.add_argument("--out-noise-csv", default="noise_with_matches.csv", help="Output CSV with matched noise observations.")
     parser.add_argument("--out-traj-parquet", default="matched_trajs.parquet", help="Output parquet file with matched trajectory slices.")
     parser.add_argument("--tol-sec", type=int, default=10, help="Temporal tolerance in seconds for matching.")
     parser.add_argument("--buffer-frac", type=float, default=1.5, help="Spatial buffer fraction applied to the distance.")
     parser.add_argument("--window-min", type=int, default=3, help="Half-width of the trajectory extraction window in minutes.")
     parser.add_argument("--log-file", default=None, help="Optional path to the log file. Defaults to logs/python/<timestamp>.log")
+    parser.add_argument(
+        "--no-dedupe-traj",
+        action="store_false",
+        dest="dedupe_traj",
+        help="Disable trajectory deduplication (not recommended for clustering).",
+    )
+    parser.set_defaults(dedupe_traj=True)
     parser.add_argument(
         "--test-mode",
         action="store_true",
@@ -595,19 +707,20 @@ def main() -> None:
     df_noise, df_traj = match_noise_to_adsb(
         noise_xlsx=args.noise_xlsx,
         adsb_joblib=args.adsb_joblib,
-        out_noise_csv=args.out_noise_csv,
         out_traj_parquet=args.out_traj_parquet,
         tol_sec=args.tol_sec,
         buffer_frac=args.buffer_frac,
         window_min=args.window_min,
         test_mode=args.test_mode,
+        dedupe_traj=args.dedupe_traj if hasattr(args, "dedupe_traj") else True,
     )
 
     matched_count = int(df_noise["icao24"].notna().sum())
     logger.info("Matching completed successfully.")
     logger.info("Matched noise events: %d / %d", matched_count, len(df_noise))
     logger.info("Trajectory slice rows: %d", len(df_traj))
-    logger.info("Outputs saved to %s and %s", args.out_noise_csv, args.out_traj_parquet)
+    if args.out_traj_parquet:
+        logger.info("Trajectory parquet target: %s", args.out_traj_parquet)
 
 
 if __name__ == "__main__":
