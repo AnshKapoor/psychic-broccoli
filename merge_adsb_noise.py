@@ -389,7 +389,10 @@ def match_noise_to_adsb(
         Path to the Joblib file containing ADS-B samples. The file must provide a
         serialised pandas DataFrame or a structure convertible to one.
     out_traj_parquet:
-        Optional path for writing the extracted ADS-B trajectory snippets.
+        Optional file name (with optional subdirectories) that determines how the
+        extracted ADS-B trajectory snippets are written under ``output/parquet``.
+        An equivalent CSV is automatically written to ``output/csv`` using the
+        same relative subdirectory and base name.
     tol_sec:
         Time tolerance in seconds used when searching for an ADS-B hit around the
         noise measurement timestamp.
@@ -718,10 +721,27 @@ def match_noise_to_adsb(
     logger.info("Matched %d noise rows out of %d", matched_rows, len(df_noise))
 
     if out_traj_parquet and not df_traj.empty:
-        out_traj_path = Path(out_traj_parquet)
-        out_traj_path.parent.mkdir(parents=True, exist_ok=True)
-        logger.info("Writing matched trajectory data to %s", out_traj_path)
-        df_traj.to_parquet(out_traj_path, index=False)
+        requested_path = Path(out_traj_parquet)
+        base_stem = requested_path.stem or requested_path.name
+        if not base_stem:
+            base_stem = "matched_trajectories"
+
+        relative_dir = requested_path.parent
+        if str(relative_dir) in (".", ""):
+            relative_dir = Path()
+
+        output_root = Path("output")
+        parquet_path = output_root / "parquet" / relative_dir / f"{base_stem}.parquet"
+        csv_path = output_root / "csv" / relative_dir / f"{base_stem}.csv"
+
+        parquet_path.parent.mkdir(parents=True, exist_ok=True)
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+        logger.info("Writing matched trajectory data to %s", parquet_path)
+        df_traj.to_parquet(parquet_path, index=False)
+
+        logger.info("Writing matched trajectory data to %s", csv_path)
+        df_traj.to_csv(csv_path, index=False)
     elif out_traj_parquet:
         logger.info("No trajectory data to write for %s", out_traj_parquet)
 
@@ -744,7 +764,10 @@ def main() -> None:
         "--traj-output",
         type=Path,
         default=None,
-        help="Optional Parquet output path for the extracted trajectories.",
+        help=(
+            "Base file name (with optional subdirectories) for trajectory outputs. "
+            "Files are written to output/parquet and output/csv."
+        ),
     )
     parser.add_argument(
         "--tol-sec",
