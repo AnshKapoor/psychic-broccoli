@@ -336,6 +336,26 @@ def _normalise_identifier(value: Any) -> Optional[str]:
     return normalised
 
 
+def _downsample_by_interval(
+    df: pd.DataFrame,
+    time_column: str,
+    interval_seconds: int,
+) -> pd.DataFrame:
+    """Return the DataFrame limited to one sample per ``interval_seconds`` bin.
+
+    The helper preserves the first observation in each interval, providing a
+    simple knob to trade temporal resolution for reduced output size.
+    """
+
+    if interval_seconds <= 0 or df.empty or time_column not in df.columns:
+        return df
+
+    df_sorted = df.sort_values(time_column)
+    binned = df_sorted[time_column].dt.floor(f"{interval_seconds}S")
+    keep_mask = ~binned.duplicated()
+    return df_sorted.loc[keep_mask].copy()
+
+
 def parse_bool(value: Union[str, bool, int]) -> bool:
     """Return a Python ``bool`` from flexible user-provided representations.
 
@@ -374,6 +394,7 @@ def match_noise_to_adsb(
     tol_sec: int = 10,
     buffer_frac: float = 0.5,
     window_min: int = 3,
+    sample_interval_sec: int = 2,
     dedupe_traj: bool = True,
     test_mode: bool = False,
     test_mode_match_limit: int = 5,
@@ -402,6 +423,9 @@ def match_noise_to_adsb(
     window_min:
         Size of the time window in minutes to extract the matched trajectory
         segment around the reference timestamp.
+    sample_interval_sec:
+        Minimum spacing between retained ADS-B samples (in seconds) inside the
+        extracted trajectory slices.
     dedupe_traj:
         When ``True`` (default) overlapping ADS-B samples per measurement
         context (``MP``, ``t_ref``, ``icao24``, ``timestamp``) are deduplicated to
@@ -419,7 +443,7 @@ def match_noise_to_adsb(
     -------
     Tuple[pd.DataFrame, pd.DataFrame]
         A tuple containing the enriched noise DataFrame and the concatenated
-        trajectory slices limited to 5 km around the airport center.
+        trajectory slices limited to 12 km around the airport center.
     """
 
     logger.info("Starting noise to ADS-B matching workflow")
@@ -642,7 +666,10 @@ def match_noise_to_adsb(
             slice6["dist_to_airport_m"] = distance_to_airport(
                 slice6["latitude"], slice6["longitude"]
             )
-            slice6 = slice6[slice6["dist_to_airport_m"] <= 5000.0].copy()
+            slice6 = slice6[slice6["dist_to_airport_m"] <= 12_000.0].copy()
+
+        if not slice6.empty:
+            slice6 = _downsample_by_interval(slice6, "timestamp", sample_interval_sec)
 
         if slice6.empty:
             continue
@@ -698,7 +725,6 @@ def match_noise_to_adsb(
             "longitude",
             "altitude",
             "geoaltitude",
-            "baro_altitude",
             "groundspeed",
             "vertical_rate",
             "track",
@@ -788,6 +814,12 @@ def main() -> None:
         help="Time window in minutes to extract around the reference timestamp.",
     )
     parser.add_argument(
+        "--sample-interval-sec",
+        type=int,
+        default=2,
+        help="Retain at most one ADS-B sample every N seconds inside each trajectory slice.",
+    )
+    parser.add_argument(
         "--no-dedupe-traj",
         action="store_true",
         help="Disable deduplication of overlapping ADS-B samples in the parquet output.",
@@ -838,6 +870,7 @@ def main() -> None:
         tol_sec=args.tol_sec,
         buffer_frac=args.buffer_frac,
         window_min=args.window_min,
+        sample_interval_sec=args.sample_interval_sec,
         dedupe_traj=not args.no_dedupe_traj,
         test_mode=args.test_mode,
         test_mode_match_limit=args.test_mode_match_limit,
