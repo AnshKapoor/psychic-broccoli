@@ -1,1 +1,63 @@
-# Parameters configuration
+input_csv: output/csv/matched_trajectories.csv  # Path to match_noise_to_adsb CSV output
+output_dir: reports/clustering                  # Where clustering artefacts are stored
+
+# Keys that uniquely identify a trajectory slice. Adjust if your dataset
+# includes additional metadata such as runway or season labels.
+group_keys:
+  - MP
+  - t_ref
+  - icao24
+
+preprocessing:
+  required_columns:
+    - timestamp
+    - latitude
+    - longitude
+    - altitude
+    - groundspeed
+    - track
+    - dist_to_airport_m
+  numeric_impute_median:
+    - vertical_rate         # ~9% missing; median keeps units grounded
+    - geoaltitude           # low missingness; fill instead of dropping rows
+  numeric_impute_zero: []    # Columns expected to be zero when missing
+  categorical_fill_value:
+    origin: UNKNOWN          # ~15% missing
+    destination: UNKNOWN     # ~15% missing
+    aircraft_type_adsb: unknown
+    aircraft_type_noise: unknown
+    aircraft_type_match: unknown
+  boolean_fill_value:
+    onground: false
+  drop_columns:
+    - squawk                 # Mostly metadata/noisy and partially missing
+    - last_position
+    - firstseen
+    - lastseen
+    - hour
+    - day
+
+features:
+  numeric_columns:
+    - latitude
+    - longitude
+    - altitude
+    - groundspeed
+    - vertical_rate
+    - track
+    - dist_to_airport_m
+  summary_statistics:
+    - mean
+    - std
+    - min
+    - max
+  target_length: 20  # Number of samples produced by preprocess_trajectory
+
+algorithm:
+  name: kmeans              # Options: kmeans, dbscan, optics, birch
+  n_clusters: 5             # Used by kmeans/birch
+  max_iter: 300             # kmeans only
+  random_state: 42
+  eps: 0.7                  # Neighbourhood size for dbscan/optics
+  min_samples: 20           # Core point definition for dbscan/optics
+  metric: euclidean         # Distance metric for density-based algorithms

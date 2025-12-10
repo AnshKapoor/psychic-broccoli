@@ -64,7 +64,8 @@ def _smooth_numeric_column(column: pd.Series) -> pd.Series:
     if window_length % 2 == 0:
         window_length -= 1
     if window_length >= 3:
-        smoothed = pd.Series(savgol_filter(column, window_length, polyorder=3), index=column.index)
+        polyorder = min(3, window_length - 1)
+        smoothed = pd.Series(savgol_filter(column, window_length, polyorder=polyorder), index=column.index)
         return smoothed
     return column
 
@@ -97,7 +98,16 @@ def preprocess_trajectory(trajectory_df: pd.DataFrame, target_length: int = 20) 
         returned when there are insufficient points to perform interpolation.
     """
 
-    numerical_cols = ["latitude", "longitude", "groundspeed", "track", "altitude"]
+    numerical_cols = [
+        "latitude",
+        "longitude",
+        "groundspeed",
+        "track",
+        "altitude",
+        "vertical_rate",
+        "dist_to_airport_m",
+        "geoaltitude",
+    ]
     df_cleaned = trajectory_df.copy().reset_index(drop=True)
 
     # Start with an optimistic mask and progressively remove rows that are

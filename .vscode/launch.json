@@ -4,6 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+      
         {
             "name": "Python Debugger: Current File with Arguments",
             "type": "debugpy",
@@ -28,6 +29,30 @@
                 "--test-mode-match-limit",
                 "5"
             ]
+        },
+        {
+            "name": "Backbone Clustering (Test Mode)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/cli.py",
+            "args": [
+                "-c",
+                "config/backbone.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Backbone Clustering (Full Mode)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/cli.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
         }
     ]
 }

@@ -1,0 +1,130 @@
+\documentclass{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{enumitem}
+\setlist{nosep}
+
+\title{Backbone Tracks: What, Why, and How}
+\author{Thesis Flight Clustering}
+\date{Last updated: 2025-12-02}
+
+\begin{document}
+\maketitle
+
+\section*{Overview}
+\begin{itemize}
+  \item Quick reference for how backbone tracks are built and interpreted.
+  \item Suitable for simple edits or additions under each heading/subheading.
+\end{itemize}
+
+\section{What is a flow?}
+\begin{itemize}
+  \item A flow is a group of flights that share the same direction and runway.
+  \item Defined by columns \texttt{A/D} (Start or Landung) and \texttt{Runway} (for example, 09L, 27R).
+  \item To split further (for example, by aircraft type), add that column to \texttt{backbone\_keys} in \texttt{config/backbone.yaml}.
+\end{itemize}
+
+\section{What is a backbone track?}
+\begin{itemize}
+  \item The ``typical path'' for a flow.
+  \item All flights in a flow are smoothed and resampled to the same number of steps, then simple statistics (p10, p50, p90) are computed at every step.
+  \item Output: one row per step per flow with percentile envelopes for latitude, longitude, altitude, groundspeed, and other numeric fields.
+\end{itemize}
+
+\section{Percentiles: p10, p50, p90}
+\begin{itemize}
+  \item p10: 10\% of flights are below this value; 90\% are above (lower bound).
+  \item p50: median; half below, half above (centre line).
+  \item p90: 90\% of flights are below; 10\% are above (upper bound).
+  \item In plots, p50 is the centreline; p10--p90 is the shaded band showing spread.
+\end{itemize}
+
+\section{What does ``normalize types'' mean?}
+\begin{itemize}
+  \item Convert \texttt{timestamp} to datetime.
+  \item Convert numeric columns (\texttt{latitude}, \texttt{longitude}, \texttt{altitude}, \texttt{groundspeed}, \texttt{track}, \texttt{dist\_to\_airport\_m}, \texttt{vertical\_rate}, \texttt{geoaltitude}) to numbers, forcing bad strings to NaN.
+  \item Clean categorical columns (\texttt{A/D}, \texttt{Runway}) by uppercasing and stripping whitespace so variants like ``09l'', `` 09L '' become identical.
+\end{itemize}
+
+\section{On what basis are rows dropped?}
+\begin{itemize}
+  \item After type conversion, rows missing required columns are removed.
+  \item Required defaults: \texttt{timestamp}, \texttt{A/D}, \texttt{Runway}, \texttt{latitude}, \texttt{longitude}, \texttt{altitude}, \texttt{groundspeed}, \texttt{track}, \texttt{dist\_to\_airport\_m}.
+  \item Without these fields a point cannot be placed in time/space or flow, so it cannot build a trajectory.
+\end{itemize}
+
+\section{What is the Savitzky--Golay smoothing?}
+\begin{itemize}
+  \item A gentle smoothing filter to reduce noise while keeping the overall shape.
+  \item For each numeric column, a small window slides and fits a low-degree polynomial (order up to 3, always less than the window size).
+  \item Suppresses spiky ADS-B noise but preserves the main path.
+\end{itemize}
+
+\section{How are backbones built (step by step)?}
+\begin{enumerate}
+  \item Load matched trajectories (default: \texttt{Enhanced/matched\_trajs\_april\_2022\_with\_ad\_runway.csv}, matched with noise Excel and ADS-B data carrying \texttt{A/D} and \texttt{Runway}).
+  \item Normalize types and drop rows missing required fields.
+  \item Group by flight identifiers (\texttt{MP}, \texttt{t\_ref}, \texttt{icao24}) to isolate each flight.
+  \item For each flight: remove outliers per numeric column; smooth with Savitzky--Golay; interpolate to a fixed number of steps (default 20). Flights with fewer than 3 valid points after filtering are skipped. Attach flow tags (\texttt{A/D}, \texttt{Runway}).
+  \item Aggregate by flow (\texttt{A/D}, \texttt{Runway}): stack resampled flights; compute p10/p50/p90 per step and numeric variable; save one row per step with these percentiles and \texttt{n\_flights}.
+\end{enumerate}
+
+\section{What do the plots show?}
+\begin{itemize}
+  \item One set of panels per flow:
+    \begin{itemize}
+      \item Ground track: longitude vs. latitude (p50 centreline, p10--p90 band).
+      \item Altitude envelope: p50 line with p10--p90 shading over the 20 steps.
+      \item Groundspeed envelope: same idea for speed.
+    \end{itemize}
+  \item \texttt{n\_flights} in the title is how many flights contributed to that flow's backbone.
+\end{itemize}
+
+\section{Key files and knobs}
+\begin{itemize}
+  \item Input data: \texttt{Enhanced/matched\_trajs\_april\_2022\_with\_ad\_runway.csv}.
+  \item Backbone config: \texttt{config/backbone.yaml} (set \texttt{backbone\_keys}, required columns, target length, test mode). Current config is in test mode.
+  \item Generation script: \texttt{scripts/generate\_backbone\_tracks.py} (reads config, writes \texttt{reports/backbone\_tracks.csv}).
+  \item Visualization: \texttt{scripts/visualize\_backbone\_tracks.py} (plots centrelines/envelopes; use \texttt{--flow Start:27R}, etc.).
+\end{itemize}
+
+\section{Test mode details}
+\begin{itemize}
+  \item Config-driven (no CLI flag needed): \texttt{test\_mode: true} in \texttt{config/backbone.yaml}.
+  \item \texttt{test\_max\_rows}: cap on input rows ingested to speed up runs.
+  \item \texttt{test\_max\_flows}: cap on distinct \texttt{A/D} + \texttt{Runway} combinations processed.
+  \item \texttt{test\_min\_group\_size}: lowers the minimum flights per flow when testing.
+  \item Set \texttt{test\_mode: false} for full-data processing.
+\end{itemize}
+
+\section{Common questions}
+\begin{itemize}
+  \item Axis ticks look tiny (for example, 0.001) because Matplotlib auto-offsets when values are close; actual latitudes are around 52.x. You can disable offsets in the plotting script.
+  \item Warnings about short trajectories: outlier filtering can drop points; any flight with fewer than 3 remaining points is skipped. Skips are logged but do not stop the run unless every flight is too short.
+\end{itemize}
+
+\section{Data source and required parameters}
+\begin{itemize}
+  \item CSV used: \texttt{Enhanced/matched\_trajs\_april\_2022\_with\_ad\_runway.csv}.
+  \item Required columns: \texttt{timestamp}, \texttt{A/D}, \texttt{Runway}, \texttt{latitude}, \texttt{longitude}, \texttt{altitude}, \texttt{groundspeed}, \texttt{track}, \texttt{dist\_to\_airport\_m}.
+  \item Flow keys: \texttt{A/D}, \texttt{Runway}.
+  \item Target length: 20 steps per processed flight.
+  \item Test mode: enabled (see details above).
+\end{itemize}
+
+\section{Paste your plots here}
+\graphicspath{{../images/}}
+\begin{itemize}
+  \item Runway 09L: \includegraphics[width=0.8\textwidth]{Figure_1.png}
+  \item Runway 27R: \includegraphics[width=0.8\textwidth]{Figure_2.png}
+  \item Runway 27L: \includegraphics[width=0.8\textwidth]{Figure_3.png}
+\end{itemize}
+
+\section{Grouping decision: include MP or not?}
+\begin{itemize}
+  \item Current setup: \texttt{group\_keys = [MP, t\_ref, icao24]} yields one trajectory per measuring point (MP) per flight. The same aircraft can appear multiple times if seen by multiple MPs.
+  \item If you want a single trajectory per flight regardless of MP, remove \texttt{MP} from \texttt{group\_keys} (for example, use \texttt{[t\_ref, icao24]} or another unique flight key). Multi-MP observations then merge into one trajectory for clustering/backbone generation.
+\end{itemize}
+
+\end{document}

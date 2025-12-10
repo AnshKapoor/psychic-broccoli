@@ -9,3 +9,4 @@ pytz
 scipy
 shapely
 traffic
+scikit-learn

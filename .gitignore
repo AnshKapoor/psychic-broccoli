@@ -7,6 +7,16 @@ data/raw/*
 data/interim/*
 data/processed/*
 !data/.gitkeep
+Enhanced/*
+output/*
+
+
+# Project outputs
+logs/
+adsb/
+noise_data.xlsx
+combined_noise_measurements.csv
+output/*.csv
 
 # Reports
 reports/figures/*

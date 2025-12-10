@@ -1,0 +1,69 @@
+input:
+  csv_glob: "Enhanced/matched_trajs_*.csv"
+  parse_dates: ["timestamp", "firstseen", "lastseen"]
+  timezone: "UTC"
+
+coordinates:
+  use_utm: true
+  utm_crs: "epsg:32632"
+
+segmentation:
+  time_gap_sec: 180
+  distance_jump_m: 600
+  min_points_per_flight: 10
+
+flows:
+  flow_keys: ["A/D", "Runway"]
+  include:
+    - ["Landung", "27R"]
+    - ["Landung", "27L"]
+    - ["Landung", "09R"]
+    - ["Landung", "09L"]
+    - ["Start", "09L"]
+    - ["Start", "09R"]
+    - ["Start", "27R"]
+    - ["Start", "27L"]
+
+preprocessing:
+  smoothing:
+    enabled: true
+    window_length: 7
+    polyorder: 2
+    columns: ["latitude", "longitude", "altitude"]
+  resampling:
+    n_points: 40
+    method: "time"
+
+clustering:
+  method: "optics"
+  distance_metric: "euclidean"  # options: euclidean, dtw, frechet
+  optics:
+    min_samples: 5
+    xi: 0.05
+    min_cluster_size: 0.05
+  kmeans:
+    n_clusters: 4
+  random_state: 42
+
+backbone:
+  percentiles: [10, 50, 90]
+  min_flights_per_cluster: 5
+
+testing:
+  enabled: false
+  max_rows_total: null
+  max_flights_per_flow: null
+  sample_flows_only: false
+  max_clusters_per_flow: null
+
+output:
+  dir: "output"
+  save_preprocessed: true
+  save_flight_metadata: true
+  save_backbones: true
+  save_plots: false
+
+logging:
+  dir: "logs"
+  filename: "backbone.log"
+  level: "INFO"
