@@ -38,9 +38,9 @@ clustering:
   method: "optics"
   distance_metric: "euclidean"  # options: euclidean, dtw, frechet
   optics:
-    min_samples: 5
-    xi: 0.05
-    min_cluster_size: 0.05
+    min_samples: 6
+    xi: 0.04
+    min_cluster_size: 0.02
   kmeans:
     n_clusters: 4
   random_state: 42
