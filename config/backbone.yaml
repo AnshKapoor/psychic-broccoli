@@ -58,6 +58,7 @@ testing:
 
 output:
   dir: "output"
+  experiment_name: "OPTICS_exp_1"
   save_preprocessed: true
   save_flight_metadata: true
   save_backbones: true
