@@ -1,6 +1,6 @@
 """Quick visualisations for backbone, clustered, and preprocessed outputs.
 
-Generates three PNGs under output/plots:
+Saves PNGs under output/run/figures for the latest CSVs in output/run/csv:
 - backbones.png: median tracks with p10–p90 band per flow
 - clustered_flights.png: last point of each flight coloured by cluster_id
 - preprocessed_sample.png: sample trajectories (up to 50)
@@ -13,19 +13,24 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-OUT_DIR = Path("output")
-PLOTS_DIR = OUT_DIR / "plots"
-PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+BASE_RUN_DIR = Path("output") / "run"
+CSV_DIR = BASE_RUN_DIR / "csv"
+FIG_DIR = BASE_RUN_DIR / "figures"
 
 
-def plot_backbones(path: Path = OUT_DIR / "backbone_tracks.csv") -> None:
-    df = pd.read_csv(path) if path.exists() else pd.DataFrame()
+def _find_latest_file(prefix: str, suffix: str = ".csv") -> Path | None:
+    if not CSV_DIR.exists():
+        return None
+    candidates = sorted(CSV_DIR.glob(f"{prefix}_*{suffix}"))
+    return candidates[-1] if candidates else None
+
+
+def plot_backbones(path: Path, plots_dir: Path) -> None:
+    df = pd.read_csv(path) if path and path.exists() else pd.DataFrame()
     if df.empty:
         print(f"{path} is empty or missing.")
         return
 
-    # Handle percentile+long format: expect columns percentile, longitude/latitude
-    # If percentile bands are absent, just plot the points.
     fig, ax = plt.subplots(figsize=(8, 6))
     has_percentile = "percentile" in df.columns
     for (ad, rw), group in df.groupby(["A/D", "Runway"]):
@@ -33,7 +38,6 @@ def plot_backbones(path: Path = OUT_DIR / "backbone_tracks.csv") -> None:
             p50 = group[group["percentile"] == 50]
             p10 = group[group["percentile"] == 10]
             p90 = group[group["percentile"] == 90]
-            # Plot p10/p90 as solid lines; p50 as a lighter line of the same color.
             if not p10.empty:
                 ax.plot(p10["longitude"], p10["latitude"], label=f"{ad}-{rw} p10", lw=1.5)
             if not p90.empty:
@@ -48,12 +52,13 @@ def plot_backbones(path: Path = OUT_DIR / "backbone_tracks.csv") -> None:
     ax.legend()
     ax.set_title("Backbone tracks")
     fig.tight_layout()
-    fig.savefig(PLOTS_DIR / "backbones.png", dpi=200)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(plots_dir / f"backbones_{path.stem.replace('.csv','')}.png", dpi=200)
     plt.close(fig)
 
 
-def plot_clustered(path: Path = OUT_DIR / "clustered_flights.csv", ad: str | None = None, runway: str | None = None) -> None:
-    df = pd.read_csv(path) if path.exists() else pd.DataFrame()
+def plot_clustered(path: Path, plots_dir: Path, ad: str | None = None, runway: str | None = None) -> None:
+    df = pd.read_csv(path) if path and path.exists() else pd.DataFrame()
     if df.empty:
         print(f"{path} is empty or missing.")
         return
@@ -63,13 +68,11 @@ def plot_clustered(path: Path = OUT_DIR / "clustered_flights.csv", ad: str | Non
     if runway:
         df = df[df["Runway"] == runway]
 
-    # Drop noise for clarity
     df = df[df["cluster_id"] != -1]
     if df.empty:
         print("No clustered points after filtering/noise removal.")
         return
 
-    # Plot full trajectories per cluster
     fig, ax = plt.subplots(figsize=(8, 6))
     clusters = sorted(df["cluster_id"].unique())
     cmap = plt.cm.get_cmap("tab10", max(len(clusters), 1))
@@ -77,20 +80,21 @@ def plot_clustered(path: Path = OUT_DIR / "clustered_flights.csv", ad: str | Non
         subset = df[df["cluster_id"] == cid]
         for _, flight in subset.groupby("flight_id"):
             ax.plot(flight["longitude"], flight["latitude"], color=cmap(cid), alpha=0.3, lw=0.8)
-    sc = ax.scatter([], [], c=[], cmap="tab10")  # placeholder for consistent colorbar
+    sc = ax.scatter([], [], c=[], cmap="tab10")
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     title_flow = f"{ad or 'all'}/{runway or 'all'}"
     ax.set_title(f"Clustered flights (trajectories, {title_flow})")
     fig.colorbar(sc, ax=ax, label="cluster_id", ticks=clusters, boundaries=[min(clusters)-0.5, max(clusters)+0.5])
     fig.tight_layout()
+    plots_dir.mkdir(parents=True, exist_ok=True)
     suffix = f"_{ad}_{runway}".replace("/", "_") if ad or runway else ""
-    fig.savefig(PLOTS_DIR / f"clustered_flights{suffix}.png", dpi=200)
+    fig.savefig(plots_dir / f"clustered_flights{suffix}_{path.stem.replace('.csv','')}.png", dpi=200)
     plt.close(fig)
 
 
-def plot_preprocessed(path: Path = OUT_DIR / "preprocessed.csv", max_trajs: int = 50) -> None:
-    df = pd.read_csv(path) if path.exists() else pd.DataFrame()
+def plot_preprocessed(path: Path, plots_dir: Path, max_trajs: int = 50) -> None:
+    df = pd.read_csv(path) if path and path.exists() else pd.DataFrame()
     if df.empty:
         print(f"{path} is empty or missing.")
         return
@@ -105,15 +109,22 @@ def plot_preprocessed(path: Path = OUT_DIR / "preprocessed.csv", max_trajs: int 
     ax.set_ylabel("Latitude")
     ax.set_title("Sample of preprocessed trajectories (up to 50)")
     fig.tight_layout()
-    fig.savefig(PLOTS_DIR / "preprocessed_sample.png", dpi=200)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(plots_dir / f"preprocessed_sample_{path.stem.replace('.csv','')}.png", dpi=200)
     plt.close(fig)
 
 
 if __name__ == "__main__":
-    plot_backbones()
-    plot_clustered()
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    backbone_path = _find_latest_file("backbone_tracks")
+    clustered_path = _find_latest_file("clustered_flights")
+    preprocessed_path = _find_latest_file("preprocessed")
+
+    plot_backbones(backbone_path, FIG_DIR)
+    plot_clustered(clustered_path, FIG_DIR)
     # Example per-flow plots; uncomment if desired:
-    # plot_clustered(ad="Landung", runway="27R")
-    # plot_clustered(ad="Start", runway="09L")
-    plot_preprocessed()
-    print(f"Saved plots to {PLOTS_DIR}")
+    # plot_clustered(clustered_path, FIG_DIR, ad="Landung", runway="27R")
+    # plot_clustered(clustered_path, FIG_DIR, ad="Start", runway="09L")
+    plot_preprocessed(preprocessed_path, FIG_DIR)
+    print(f"Saved plots to {FIG_DIR}")

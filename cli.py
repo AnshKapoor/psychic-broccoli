@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List
 
@@ -108,6 +109,19 @@ def main(config_path: str = "config/backbone.yaml") -> None:
     preprocessing_cfg = cfg.get("preprocessing", {}) or {}
     smoothing_cfg = preprocessing_cfg.get("smoothing", {})
     resampling_cfg = preprocessing_cfg.get("resampling", {})
+    clustering_cfg: Dict[str, object] = cfg.get("clustering", {}) or {}
+    method = clustering_cfg.get("method", "optics")
+
+    output_cfg = cfg.get("output", {}) or {}
+    output_dir = Path(output_cfg.get("dir", "output"))
+    run_dir = output_dir / "run"
+    csv_dir = run_dir / "csv"
+    plots_dir = run_dir / "figures"
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    exp_name = str(output_cfg.get("experiment_name", f"{str(method).upper()}_exp_1"))
+    logging.info("Using run directory %s (experiment=%s)", run_dir, exp_name)
+
     preprocessed = preprocess_flights(
         df,
         smoothing_cfg=smoothing_cfg,
@@ -118,14 +132,10 @@ def main(config_path: str = "config/backbone.yaml") -> None:
         logging.warning("No preprocessed trajectories available after filtering/segmentation; exiting.")
         return
 
-    output_cfg = cfg.get("output", {}) or {}
-    output_dir = Path(output_cfg.get("dir", "output"))
     if output_cfg.get("save_preprocessed", True) and not preprocessed.empty:
-        save_dataframe(preprocessed, output_dir / "preprocessed.csv")
+        save_dataframe(preprocessed, csv_dir / f"preprocessed_{exp_name}.csv")
 
     # Clustering per flow
-    clustering_cfg: Dict[str, object] = cfg.get("clustering", {}) or {}
-    method = clustering_cfg.get("method", "optics")
     n_points = int(resampling_cfg.get("n_points", 40))
     clustered_parts: List[pd.DataFrame] = []
 
@@ -143,7 +153,7 @@ def main(config_path: str = "config/backbone.yaml") -> None:
 
     clustered_df = pd.concat(clustered_parts, ignore_index=True) if clustered_parts else pd.DataFrame()
     if output_cfg.get("save_flight_metadata", True) and not clustered_df.empty:
-        save_dataframe(clustered_df, output_dir / "clustered_flights.csv")
+        save_dataframe(clustered_df, csv_dir / f"clustered_flights_{exp_name}.csv")
 
     backbone_cfg = cfg.get("backbone", {}) or {}
     backbones = compute_backbones(
@@ -154,20 +164,20 @@ def main(config_path: str = "config/backbone.yaml") -> None:
     )
 
     if output_cfg.get("save_backbones", True) and not backbones.empty:
-        save_dataframe(backbones, output_dir / "backbone_tracks.csv")
+        save_dataframe(backbones, csv_dir / f"backbone_tracks_{exp_name}.csv")
 
     if output_cfg.get("save_plots", False):
         from backbone_tracks.plots import plot_backbone
 
         for (ad, runway, cluster_id), subset in backbones.groupby(["A/D", "Runway", "cluster_id"]):
-            plot_backbone(
-                subset,
-                ad,
-                runway,
-                cluster_id,
-                output_dir / "plots" / f"backbone_{ad}_{runway}_{cluster_id}.png",
-                use_utm=use_utm,
-            )
+                plot_backbone(
+                    subset,
+                    ad,
+                    runway,
+                    cluster_id,
+                    plots_dir / f"backbone_{ad}_{runway}_{cluster_id}_{exp_name}.png",
+                    use_utm=use_utm,
+                )
 
 
 if __name__ == "__main__":
