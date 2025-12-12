@@ -50,12 +50,23 @@ def plot_backbones(path: Path, plots_dir: Path) -> None:
             p50 = group[group["percentile"] == 50]
             p10 = group[group["percentile"] == 10]
             p90 = group[group["percentile"] == 90]
-            if not p10.empty:
-                ax.plot(p10["longitude"], p10["latitude"], label=f"{ad}-{rw} p10", lw=1.5, color=color)
-            if not p90.empty:
-                ax.plot(p90["longitude"], p90["latitude"], label=f"{ad}-{rw} p90", lw=1.5, color=color)
+            if not p10.empty and not p90.empty and not p50.empty:
+                # Shade between p10 and p90
+                merged = p10[["step", "longitude", "latitude"]].rename(columns={"latitude": "lat_p10"}).merge(
+                    p90[["step", "latitude"]].rename(columns={"latitude": "lat_p90"}), on="step", how="inner"
+                ).merge(
+                    p50[["step", "longitude"]].rename(columns={"longitude": "lon_p50"}), on="step", how="inner"
+                )
+                ax.fill_between(
+                    merged["lon_p50"],
+                    merged["lat_p10"],
+                    merged["lat_p90"],
+                    color=color,
+                    alpha=0.15,
+                    label=f"{ad}-{rw} p10-p90",
+                )
             if not p50.empty:
-                ax.plot(p50["longitude"], p50["latitude"], label=f"{ad}-{rw} p50", lw=2, alpha=0.5, color=color)
+                ax.plot(p50["longitude"], p50["latitude"], label=f"{ad}-{rw} p50", lw=2, color=color)
         else:
             ax.plot(group["longitude"], group["latitude"], label=f"{ad}-{rw}", lw=2, color=color)
 
