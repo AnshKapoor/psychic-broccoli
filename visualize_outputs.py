@@ -33,10 +33,16 @@ def _find_latest_file(prefix: str, suffix: str = ".csv", experiment_prefix: str 
     return candidates[-1] if candidates else None
 
 
-def plot_backbones(path: Path, plots_dir: Path) -> None:
+def _plot_backbones_filtered(path: Path, plots_dir: Path, runways: set[str] | None, suffix: str) -> None:
     df = pd.read_csv(path) if path and path.exists() else pd.DataFrame()
     if df.empty:
         print(f"{path} is empty or missing.")
+        return
+
+    if runways:
+        df = df[df["Runway"].isin(runways)]
+    if df.empty:
+        print(f"No backbones to plot for runways={runways}.")
         return
 
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -73,10 +79,10 @@ def plot_backbones(path: Path, plots_dir: Path) -> None:
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     ax.legend()
-    ax.set_title("Backbone tracks")
+    ax.set_title(f"Backbone tracks {suffix}".strip())
     fig.tight_layout()
     plots_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(plots_dir / f"backbones_{path.stem.replace('.csv','')}.png", dpi=200)
+    fig.savefig(plots_dir / f"backbones{suffix}_{path.stem.replace('.csv','')}.png", dpi=200)
     plt.close(fig)
 
 
@@ -154,7 +160,9 @@ if __name__ == "__main__":
     clustered_path = _find_latest_file("clustered_flights", experiment_prefix=args.experiment_prefix)
     preprocessed_path = _find_latest_file("preprocessed", experiment_prefix=args.experiment_prefix)
 
-    plot_backbones(backbone_path, FIG_DIR)
+    # Plot backbones in two figures: 09L/27L and 09R/27R for clarity.
+    _plot_backbones_filtered(backbone_path, FIG_DIR, runways={"09L", "27L"}, suffix="_09L_27L")
+    _plot_backbones_filtered(backbone_path, FIG_DIR, runways={"09R", "27R"}, suffix="_09R_27R")
     plot_clustered(clustered_path, FIG_DIR)
     # Example per-flow plots; uncomment if desired:
     # plot_clustered(clustered_path, FIG_DIR, ad="Landung", runway="27R")
