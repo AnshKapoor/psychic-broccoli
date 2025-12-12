@@ -18,7 +18,7 @@ from distance_metrics import pairwise_distance_matrix
 
 
 def build_feature_matrix(
-    df: pd.DataFrame, n_points: int, use_utm: bool
+    df: pd.DataFrame, n_points: int, use_utm: bool, flow_keys: Tuple[str, ...]
 ) -> Tuple[np.ndarray, pd.DataFrame, list[np.ndarray]]:
     """
     Build a 2D feature matrix X of shape (n_flights, 2 * n_points) for clustering.
@@ -31,7 +31,7 @@ def build_feature_matrix(
     feature_rows = []
     metadata_rows = []
     trajectories: list[np.ndarray] = []
-    for (ad, runway, flight_id), flight in df.groupby(["A/D", "Runway", "flight_id"]):
+    for group_vals, flight in df.groupby([*flow_keys, "flight_id"]):
         flight_sorted = flight.sort_values("step")
         if len(flight_sorted) < n_points:
             continue
@@ -51,7 +51,8 @@ def build_feature_matrix(
                 traj_coords.append((lat_val, lon_val))
         if len(vec) == 2 * n_points:
             feature_rows.append(vec)
-            metadata_rows.append({"A/D": ad, "Runway": runway, "flight_id": flight_id})
+            meta = {key: val for key, val in zip([*flow_keys, "flight_id"], group_vals)}
+            metadata_rows.append(meta)
             trajectories.append(np.array(traj_coords, dtype=float))
 
     X = np.array(feature_rows, dtype=float)
@@ -75,6 +76,7 @@ def cluster_flow(
     n_points: int,
     max_clusters_per_flow: int | None = None,
     use_utm: bool = False,
+    flow_keys: Tuple[str, ...] = ("A/D", "Runway"),
 ) -> pd.DataFrame:
     """
     Cluster a single flow (A/D, Runway).
@@ -85,7 +87,7 @@ def cluster_flow(
         return df_flow.assign(cluster_id=pd.Series(dtype=int))
 
     distance_metric = str(cfg.get("distance_metric", "euclidean")).lower()
-    X, metadata_df, trajectories = build_feature_matrix(df_flow, n_points, use_utm=use_utm)
+    X, metadata_df, trajectories = build_feature_matrix(df_flow, n_points, use_utm=use_utm, flow_keys=flow_keys)
     if len(metadata_df) == 0:
         logging.warning("No feature rows for flow; skipping clustering.")
         return df_flow.assign(cluster_id=pd.Series(dtype=int))

@@ -150,8 +150,12 @@ def main(config_path: str = "config/backbone.yaml") -> None:
     n_points = int(resampling_cfg.get("n_points", 40))
     clustered_parts: List[pd.DataFrame] = []
 
-    for (ad, runway), flow_df in preprocessed.groupby(flow_keys):
-        logging.info("Clustering flow %s %s with %d points", ad, runway, flow_df["flight_id"].nunique())
+    for flow_vals, flow_df in preprocessed.groupby(flow_keys):
+        # flow_vals is scalar if one key, tuple otherwise
+        if not isinstance(flow_vals, tuple):
+            flow_vals = (flow_vals,)
+        flow_label = ", ".join(str(v) for v in flow_vals)
+        logging.info("Clustering flow %s with %d flights", flow_label, flow_df["flight_id"].nunique())
         clustered = cluster_flow(
             flow_df,
             method=method,
@@ -159,6 +163,7 @@ def main(config_path: str = "config/backbone.yaml") -> None:
             n_points=n_points,
             max_clusters_per_flow=testing_cfg.get("max_clusters_per_flow") if test_mode else None,
             use_utm=use_utm,
+            flow_keys=tuple(flow_keys),
         )
         clustered_parts.append(clustered)
 

@@ -75,6 +75,7 @@ def preprocess_flights(
     smoothing_cfg: Dict[str, object],
     resampling_cfg: Dict[str, object],
     use_utm: bool = False,
+    flow_keys: Sequence[str] = ("A/D", "Runway"),
 ) -> pd.DataFrame:
     """
     For each (flight_id, flow), sort by timestamp, optionally smooth, and resample to fixed points.
@@ -97,7 +98,8 @@ def preprocess_flights(
         resample_cols = ["latitude", "longitude", *resample_cols]
 
     outputs: List[pd.DataFrame] = []
-    for (_, _, flight_id), flight in df.groupby(["A/D", "Runway", "flight_id"]):
+    group_cols = [*flow_keys, "flight_id"]
+    for _, flight in df.groupby(group_cols):
         flight_sorted = flight.sort_values("timestamp")
         if len(flight_sorted) < 2:
             continue
