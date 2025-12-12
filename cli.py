@@ -131,6 +131,7 @@ def main(config_path: str = "config/backbone.yaml") -> None:
         smoothing_cfg=smoothing_cfg,
         resampling_cfg=resampling_cfg,
         use_utm=use_utm,
+        flow_keys=flow_keys,
     )
     if preprocessed.empty:
         logging.warning("No preprocessed trajectories available after filtering/segmentation; exiting.")
