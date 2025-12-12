@@ -96,6 +96,7 @@ def main(config_path: str = "config/backbone.yaml") -> None:
         distance_jump_m=float(seg_cfg.get("distance_jump_m", 600)),
         min_points_per_flight=int(seg_cfg.get("min_points_per_flight", 10)),
     )
+    logging.info("After segmentation: %d rows", len(df))
 
     if test_mode and testing_cfg.get("max_flights_per_flow"):
         df = limit_flights_per_flow(
@@ -121,6 +122,9 @@ def main(config_path: str = "config/backbone.yaml") -> None:
     plots_dir.mkdir(parents=True, exist_ok=True)
     exp_name = str(output_cfg.get("experiment_name", f"{str(method).upper()}_exp_1"))
     logging.info("Using run directory %s (experiment=%s)", run_dir, exp_name)
+    logging.info("Rows loaded before segmentation/filtering: %d", len(df))
+    if "A/D" in df.columns and "Runway" in df.columns:
+        logging.info("Unique flows before segmentation: %d", df[["A/D", "Runway"]].drop_duplicates().shape[0])
 
     preprocessed = preprocess_flights(
         df,
@@ -131,6 +135,13 @@ def main(config_path: str = "config/backbone.yaml") -> None:
     if preprocessed.empty:
         logging.warning("No preprocessed trajectories available after filtering/segmentation; exiting.")
         return
+    if "flight_id" in preprocessed.columns:
+        logging.info(
+            "After preprocessing: %d rows, %d flights, n_points per flight target=%d",
+            len(preprocessed),
+            preprocessed["flight_id"].nunique(),
+            int(resampling_cfg.get("n_points", 40)),
+        )
 
     if output_cfg.get("save_preprocessed", True) and not preprocessed.empty:
         save_dataframe(preprocessed, csv_dir / f"preprocessed_{exp_name}.csv")
