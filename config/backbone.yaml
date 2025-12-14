@@ -13,16 +13,13 @@ segmentation:
   min_points_per_flight: 10
 
 flows:
-  flow_keys: ["A/D", "Runway"]
+  flow_keys: ["Runway"]
   include:
-    - ["Landung", "27R"]
-    - ["Landung", "27L"]
-    - ["Landung", "09R"]
-    - ["Landung", "09L"]
-    - ["Start", "09L"]
-    - ["Start", "09R"]
-    - ["Start", "27R"]
-    - ["Start", "27L"]
+    - ["27R"]
+    - ["27L"]
+    - ["09R"]
+    - ["09L"]
+    - ["HEL"]
 
 preprocessing:
   smoothing:

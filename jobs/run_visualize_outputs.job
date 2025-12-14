@@ -59,5 +59,6 @@ cd /home/y0113724/psychic-broccoli
 
 mkdir -p logs/python
 
-srun /home/y0113724/venvs/psychic/bin/python visualize_outputs.py
-
+# Adjust experiment prefix to pick the desired CSV set in output/run/csv
+srun /home/y0113724/venvs/psychic/bin/python visualize_outputs.py \
+  --experiment-prefix OPTICS_exp_3

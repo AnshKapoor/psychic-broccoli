@@ -8,46 +8,43 @@ coordinates:
   utm_crs: "epsg:32632"
 
 segmentation:
-  time_gap_sec: 180
+  time_gap_sec: 120
   distance_jump_m: 600
-  min_points_per_flight: 10
+  min_points_per_flight: 15
 
 flows:
-  flow_keys: ["A/D", "Runway"]
+  flow_keys: ["Runway"]
   include:
-    - ["Landung", "27R"]
-    - ["Landung", "27L"]
-    - ["Landung", "09R"]
-    - ["Landung", "09L"]
-    - ["Start", "09L"]
-    - ["Start", "09R"]
-    - ["Start", "27R"]
-    - ["Start", "27L"]
+    - ["27R"]
+    - ["27L"]
+    - ["09R"]
+    - ["09L"]
+    - ["HEL"]
 
 preprocessing:
   smoothing:
     enabled: true
-    window_length: 7
+    window_length: 9
     polyorder: 2
     columns: ["latitude", "longitude", "altitude"]
   resampling:
-    n_points: 40
+    n_points: 60
     method: "time"
 
 clustering:
   method: "optics"
   distance_metric: "euclidean"  # options: euclidean, dtw, frechet
   optics:
-    min_samples: 10
+    min_samples: 12
     xi: 0.04
-    min_cluster_size: 0.03
+    min_cluster_size: 0.04
   kmeans:
     n_clusters: 4
   random_state: 42
 
 backbone:
-  percentiles: [10, 50, 90]
-  min_flights_per_cluster: 5
+  percentiles: [25, 50, 75]
+  min_flights_per_cluster: 10
 
 testing:
   enabled: false
@@ -58,7 +55,7 @@ testing:
 
 output:
   dir: "output"
-  experiment_name: "OPTICS_exp_full"
+  experiment_name: "OPTICS_exp_4"
   save_preprocessed: true
   save_flight_metadata: true
   save_backbones: true
@@ -66,5 +63,5 @@ output:
 
 logging:
   dir: "logs"
-  filename: "backbone.log"
+  filename: "backbone_4.log"
   level: "INFO"

@@ -1,0 +1,48 @@
+experiments:
+  - name: "OPTICS_sweep"
+    method: "optics"
+    distance_metric: "euclidean"
+    optics:
+      min_samples: [8, 12, 16]
+      xi: [0.03, 0.04, 0.06]
+      min_cluster_size: [0.03, 0.04, 0.06]
+  - name: "DBSCAN_sweep"
+    method: "dbscan"
+    distance_metric: "euclidean"
+    dbscan:
+      eps: [150, 250, 350, 500]
+      min_samples: [8, 12, 16]
+  - name: "HDBSCAN_sweep"
+    method: "hdbscan"
+    distance_metric: "euclidean"
+    hdbscan:
+      min_cluster_size: [8, 12, 20, 40]
+      min_samples: [null, 8, 12]
+  - name: "KMeans_baseline"
+    method: "kmeans"
+    distance_metric: "euclidean"
+    kmeans:
+      n_clusters: [3, 4, 5, 6, 7, 8, 9, 10]
+  - name: "Agglomerative_baseline"
+    method: "agglomerative"
+    distance_metric: "euclidean"
+    agglomerative:
+      linkage: ["ward", "average", "complete"]
+      n_clusters: [3, 4, 5, 6, 7, 8, 9, 10]
+
+flows:
+  flow_keys: ["Runway"]
+  include:
+    - ["27R"]
+    - ["27L"]
+    - ["09R"]
+    - ["09L"]
+    - ["HEL"]
+
+input:
+  preprocessed_csv: "output/run/csv/preprocessed_OPTICS_exp_full.csv"
+
+output:
+  dir: "output"
+  base_experiment_name: "Paper_sweeps"
+*** End Patch.
