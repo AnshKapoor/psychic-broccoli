@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from backbone_tracks.config import load_config
 from backbone_tracks.io import add_utm_coordinates, ensure_required_columns, load_monthly_csvs, save_dataframe
