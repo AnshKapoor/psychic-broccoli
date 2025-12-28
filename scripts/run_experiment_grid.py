@@ -1,12 +1,18 @@
-"""Run a grid of clustering experiments defined in experiments/experiment_grid.yaml."""
+"""Run a grid of clustering experiments defined in a YAML file."""
 
 from __future__ import annotations
 
+import argparse
 import copy
 import itertools
+import sys
 from pathlib import Path
 
 import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from experiments.runner import run_experiment
 
@@ -55,7 +61,18 @@ def main(grid_path: Path) -> None:
             cfg["clustering"]["method"] = method
             cfg["clustering"]["distance_metric"] = distance_metric
             cfg["clustering"][method] = params
-            cfg["output"]["experiment_name"] = f"{base_name}_{exp_name}_{method}_run{idx}"
+            grid_flows = grid.get("flows")
+            if grid_flows:
+                cfg["flows"] = copy.deepcopy(grid_flows)
+            grid_features = grid.get("features")
+            if grid_features:
+                cfg["features"] = copy.deepcopy(grid_features)
+            explicit_name = exp.get("experiment_name")
+            if explicit_name:
+                suffix = f"_run{idx}" if len(param_space) > 1 else ""
+                cfg["output"]["experiment_name"] = f"{explicit_name}{suffix}"
+            else:
+                cfg["output"]["experiment_name"] = f"{base_name}_{exp_name}_{method}_run{idx}"
             # Use provided preprocessed CSV if specified in grid
             if "input" in grid and "preprocessed_csv" in grid["input"]:
                 cfg.setdefault("input", {})["preprocessed_csv"] = grid["input"]["preprocessed_csv"]
@@ -68,4 +85,12 @@ def main(grid_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path("experiments/experiment_grid.yaml"))
+    parser = argparse.ArgumentParser(description="Run a grid of clustering experiments.")
+    parser.add_argument(
+        "--grid",
+        type=Path,
+        default=Path("experiments/experiment_grid.yaml"),
+        help="Path to the experiment grid YAML.",
+    )
+    args = parser.parse_args()
+    main(args.grid)
