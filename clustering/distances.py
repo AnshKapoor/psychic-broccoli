@@ -47,7 +47,7 @@ def _hash_config(flow_name: str, metric: str, params: dict, flight_ids: Iterable
 
 
 def pairwise_distance_matrix(
-    trajectories: Sequence[np.ndarray],
+    trajectories: Sequence[np.ndarray] | np.ndarray,
     metric: str = "euclidean",
     cache_dir: Path | None = None,
     flow_name: str | None = None,
@@ -67,14 +67,20 @@ def pairwise_distance_matrix(
         if cache_path.exists():
             return np.load(cache_path)
 
-    n = len(trajectories)
-    D = np.zeros((n, n), dtype=float)
-
     if metric == "euclidean":
-        # For euclidean, expect flattened vectors passed instead of trajectories.
-        flat = np.array(trajectories, dtype=float)
+        # Accept either a 2D feature matrix, or a sequence of arrays (flattened).
+        if isinstance(trajectories, np.ndarray):
+            if trajectories.ndim != 2:
+                raise ValueError("Euclidean distance requires a 2D feature matrix.")
+            flat = trajectories.astype(float, copy=False)
+        else:
+            flat = np.stack([np.asarray(t, dtype=float).ravel() for t in trajectories], axis=0)
         D = cdist(flat, flat, metric="euclidean")
     elif metric in {"dtw", "frechet"}:
+        if isinstance(trajectories, np.ndarray):
+            raise ValueError(f"{metric} distance requires a sequence of (T,D) trajectories.")
+        n = len(trajectories)
+        D = np.zeros((n, n), dtype=float)
         for i in range(n):
             D[i, i] = 0.0
             for j in range(i + 1, n):
