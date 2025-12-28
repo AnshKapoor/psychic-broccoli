@@ -53,6 +53,196 @@
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Visualize Outputs",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/visualize_outputs.py",
+            "args": [
+                "--experiment-prefix",
+                "OPTICS_exp_4"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - OPTICS",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - GLOBAL OPTICS",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/experiments/global_optics.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - GLOBAL DBSCAN",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/experiments/global_dbscan.yaml",
+                "--preprocessed",
+                "output/run/csv/preprocessed_OPTICS_exp_5.csv"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - GLOBAL HDBSCAN",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/experiments/global_hdbscan.yaml",
+                "--preprocessed",
+                "output/run/csv/preprocessed_OPTICS_exp_5.csv"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - GLOBAL KMeans",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/experiments/global_kmeans.yaml",
+                "--preprocessed",
+                "output/run/csv/preprocessed_OPTICS_exp_5.csv"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - GLOBAL Agglomerative",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/experiments/global_agglomerative.yaml",
+                "--preprocessed",
+                "output/run/csv/preprocessed_OPTICS_exp_5.csv"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - DBSCAN",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - HDBSCAN",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - KMeans",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Experiment Runner - Agglomerative",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/experiments/runner.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Run Named Experiments Grid",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/run_experiment_grid.py",
+            "args": [
+                "--grid",
+                "experiments/named_experiments.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Save Preprocessed Data",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/save_preprocessed.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Plot Experiment Results",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/plot_experiment_results.py",
+            "args": [
+                "GLOBAL_AGGLO_exp_1",
+                "--max-flights-per-cluster",
+                "30"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Global Experiments (All Methods)",
+            "configurations": [
+                "Experiment Runner - GLOBAL OPTICS",
+                "Experiment Runner - GLOBAL DBSCAN",
+                "Experiment Runner - GLOBAL HDBSCAN",
+                "Experiment Runner - GLOBAL KMeans",
+                "Experiment Runner - GLOBAL Agglomerative"
+            ],
+            "stopAll": true
         }
     ]
 }

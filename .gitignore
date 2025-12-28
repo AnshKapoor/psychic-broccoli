@@ -18,6 +18,9 @@ noise_data.xlsx
 combined_noise_measurements.csv
 output/*.csv
 
+# External
+noise_simulation/
+
 # Reports
 reports/figures/*
 reports/tables/*
