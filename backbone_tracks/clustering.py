@@ -96,11 +96,19 @@ def cluster_flow(
     method_lower = method.lower()
     if method_lower == "optics":
         optics_cfg = cfg.get("optics", {})
+        distance_params = cfg.get("distance_params", {}) or {}
+        dtw_window_size = distance_params.get("dtw_window_size")
+        log_every = distance_params.get("log_every")
         if distance_metric not in {"euclidean", "dtw", "frechet"}:
             raise ValueError(f"Unsupported distance metric for OPTICS: {distance_metric}")
 
         if distance_metric in {"dtw", "frechet"}:
-            dist_matrix = pairwise_distance_matrix(trajectories, metric=distance_metric)
+            dist_matrix = pairwise_distance_matrix(
+                trajectories,
+                metric=distance_metric,
+                dtw_window_size=dtw_window_size,
+                log_every=log_every,
+            )
             model = OPTICS(
                 min_samples=int(optics_cfg.get("min_samples", 5)),
                 xi=float(optics_cfg.get("xi", 0.05)),

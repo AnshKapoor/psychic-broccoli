@@ -63,8 +63,9 @@ srun /home/y0113724/venvs/psychic/bin/python merge_adsb_noise.py \
   noise_data.xlsx \
   adsb/data_2022_may.joblib \
   --traj-output matched_trajs_may_2022.parquet \
+  --output-dir output/merged \
   --tol-sec 10 \
   --buffer-frac 0.5 \
   --window-min 3 \
+  --max-airport-distance-km 25 \
   --test-mode false \
-

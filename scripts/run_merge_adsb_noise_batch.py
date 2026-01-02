@@ -60,6 +60,7 @@ def main() -> None:
 
     out_cfg = cfg.get("output", {}) or {}
     template = str(out_cfg.get("traj_output_template", "matched_trajs_{month}_{year}.parquet"))
+    output_dir = out_cfg.get("output_dir")
 
     match_cfg = cfg.get("matching", {}) or {}
     max_km = float(match_cfg.get("max_airport_distance_km", 12))
@@ -84,6 +85,7 @@ def main() -> None:
             df_noise=noise_excel,
             adsb_joblib=adsb_joblib,
             out_traj_parquet=out_name,
+            output_dir=output_dir,
             tol_sec=int(match_cfg.get("tol_sec", 10)),
             buffer_frac=float(match_cfg.get("buffer_frac", 0.5)),
             window_min=int(match_cfg.get("window_min", 3)),

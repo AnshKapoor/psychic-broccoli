@@ -391,11 +391,12 @@ def match_noise_to_adsb(
     df_noise: Union[str, Path],
     adsb_joblib: Union[str, Path],
     out_traj_parquet: Optional[Union[str, Path]] = None,
+    output_dir: Optional[Union[str, Path]] = None,
     tol_sec: int = 10,
     buffer_frac: float = 0.5,
     window_min: int = 3,
     sample_interval_sec: int = 2,
-    max_airport_distance_m: float = 12_000.0,
+    max_airport_distance_m: float = 25_000.0,
     dedupe_traj: bool = True,
     test_mode: bool = False,
     test_mode_match_limit: int = 5,
@@ -412,9 +413,12 @@ def match_noise_to_adsb(
         serialised pandas DataFrame or a structure convertible to one.
     out_traj_parquet:
         Optional file name (with optional subdirectories) that determines how the
-        extracted ADS-B trajectory snippets are written under ``output/parquet``.
-        An equivalent CSV is automatically written to ``output/csv`` using the
-        same relative subdirectory and base name.
+        extracted ADS-B trajectory snippets are written. By default outputs are
+        stored under ``output/parquet`` and ``output/csv`` using the same relative
+        subdirectory and base name.
+    output_dir:
+        Optional directory to write both parquet and CSV outputs. When provided,
+        it overrides the ``output/parquet`` and ``output/csv`` layout.
     tol_sec:
         Time tolerance in seconds used when searching for an ADS-B hit around the
         noise measurement timestamp.
@@ -784,9 +788,14 @@ def match_noise_to_adsb(
         if str(relative_dir) in (".", ""):
             relative_dir = Path()
 
-        output_root = Path("output")
-        parquet_path = output_root / "parquet" / relative_dir / f"{base_stem}.parquet"
-        csv_path = output_root / "csv" / relative_dir / f"{base_stem}.csv"
+        if output_dir is None:
+            output_root = Path("output")
+            parquet_path = output_root / "parquet" / relative_dir / f"{base_stem}.parquet"
+            csv_path = output_root / "csv" / relative_dir / f"{base_stem}.csv"
+        else:
+            output_root = Path(output_dir)
+            parquet_path = output_root / relative_dir / f"{base_stem}.parquet"
+            csv_path = output_root / relative_dir / f"{base_stem}.csv"
 
         parquet_path.parent.mkdir(parents=True, exist_ok=True)
         csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -820,7 +829,16 @@ def main() -> None:
         default=None,
         help=(
             "Base file name (with optional subdirectories) for trajectory outputs. "
-            "Files are written to output/parquet and output/csv."
+            "Files are written to output/parquet and output/csv unless --output-dir is set."
+        ),
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional directory to write both parquet and CSV outputs. "
+            "Overrides the default output/parquet and output/csv layout."
         ),
     )
     parser.add_argument(
@@ -850,7 +868,7 @@ def main() -> None:
     parser.add_argument(
         "--max-airport-distance-m",
         type=float,
-        default=12_000.0,
+        default=25_000.0,
         help="Maximum distance in metres from the airport centre to retain in each trajectory slice.",
     )
     parser.add_argument(
@@ -911,6 +929,7 @@ def main() -> None:
         df_noise=args.noise_excel,
         adsb_joblib=args.adsb_joblib,
         out_traj_parquet=args.traj_output,
+        output_dir=args.output_dir,
         tol_sec=args.tol_sec,
         buffer_frac=args.buffer_frac,
         window_min=args.window_min,

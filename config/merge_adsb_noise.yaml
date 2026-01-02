@@ -8,7 +8,9 @@ adsb:
 output:
   # `merge_adsb_noise.py` writes to `output/parquet/<name>.parquet` and `output/csv/<name>.csv`.
   # This controls only the base name passed as `--traj-output`.
-  traj_output_template: "merged/matched_trajs_{month}_{year}.parquet"
+  traj_output_template: "matched_trajs_{month}_{year}.parquet"
+  # Optional override to write both parquet + CSV in a single folder.
+  output_dir: "output/merged"
 
 matching:
   tol_sec: 10

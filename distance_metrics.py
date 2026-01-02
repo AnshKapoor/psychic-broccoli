@@ -9,10 +9,15 @@ from __future__ import annotations
 
 from typing import Callable, Sequence
 
+import logging
+import time
+
 import numpy as np
 
 Trajectory = np.ndarray  # shape (T, D), D = 2 or 3
 DistanceFn = Callable[[Trajectory, Trajectory], float]
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_trajectories(traj1: Trajectory, traj2: Trajectory) -> tuple[np.ndarray, np.ndarray]:
@@ -105,21 +110,66 @@ def get_trajectory_distance_fn(name: str) -> DistanceFn:
     raise ValueError(f"Unsupported distance metric: {name}")
 
 
-def pairwise_distance_matrix(trajectories: Sequence[Trajectory], metric: str = "euclidean") -> np.ndarray:
+def pairwise_distance_matrix(
+    trajectories: Sequence[Trajectory],
+    metric: str = "euclidean",
+    dtw_window_size: int | None = None,
+    log_every: int | None = None,
+) -> np.ndarray:
     """Compute a symmetric pairwise distance matrix for the provided trajectories."""
 
     if not trajectories:
         raise ValueError("No trajectories provided for distance computation.")
 
-    dist_fn = get_trajectory_distance_fn(metric)
+    metric = metric.lower()
     n = len(trajectories)
     mat = np.zeros((n, n), dtype=float)
+    total_pairs = n * (n - 1) // 2
+    log_every = int(log_every) if log_every else None
+
+    if metric in {"dtw", "frechet"}:
+        logger.info(
+            "Computing %s distance matrix for %d trajectories (%d pairs).",
+            metric,
+            n,
+            total_pairs,
+        )
+        if metric == "dtw" and dtw_window_size is not None:
+            logger.info("DTW window size: %s", dtw_window_size)
+        start = time.perf_counter()
+        pairs_done = 0
 
     for i in range(n):
         mat[i, i] = 0.0
         for j in range(i + 1, n):
-            d = dist_fn(trajectories[i], trajectories[j])
+            if metric == "dtw":
+                d = dtw_distance(trajectories[i], trajectories[j], window_size=dtw_window_size)
+            elif metric == "frechet":
+                d = discrete_frechet_distance(trajectories[i], trajectories[j])
+            elif metric == "euclidean":
+                d = euclidean_distance(trajectories[i], trajectories[j])
+            else:
+                raise ValueError(f"Unsupported distance metric: {metric}")
             mat[i, j] = mat[j, i] = d
+            if metric in {"dtw", "frechet"}:
+                pairs_done += 1
+                if log_every and pairs_done % log_every == 0:
+                    elapsed = time.perf_counter() - start
+                    rate = pairs_done / elapsed if elapsed > 0 else 0.0
+                    remaining = total_pairs - pairs_done
+                    eta = remaining / rate if rate > 0 else float("inf")
+                    logger.info(
+                        "Distance progress: %d/%d pairs (%.1f%%), %.2f pairs/s, ETA %.1fs",
+                        pairs_done,
+                        total_pairs,
+                        100.0 * pairs_done / total_pairs if total_pairs else 100.0,
+                        rate,
+                        eta,
+                    )
+
+    if metric in {"dtw", "frechet"}:
+        elapsed = time.perf_counter() - start
+        logger.info("Computed %s distance matrix in %.1fs.", metric, elapsed)
     return mat
 
 

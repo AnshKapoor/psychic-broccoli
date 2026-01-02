@@ -54,6 +54,7 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
     eval_cfg: Dict[str, object] = clustering_cfg.get("evaluation", {}) or {}
     method = clustering_cfg.get("method", "optics")
     distance_metric = clustering_cfg.get("distance_metric", "euclidean")
+    distance_params = clustering_cfg.get("distance_params", {}) or {}
     experiment_name = cfg.get("output", {}).get("experiment_name", "experiment")
 
     flows_cfg = cfg.get("flows", {}) or {}
@@ -101,15 +102,17 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
             raise ValueError(f"{method} does not support precomputed distances ({distance_metric}).")
 
         if precomputed_needed:
+            params = {
+                "distance_metric": distance_metric,
+                "n_points": cfg.get("preprocessing", {}).get("resampling", {}).get("n_points"),
+            }
+            params.update(distance_params)
             D = pairwise_distance_matrix(
                 trajs if distance_metric in {"dtw", "frechet"} else X,
                 metric=distance_metric,
                 cache_dir=output_dir / "cache",
                 flow_name=flow_name,
-                params={
-                    "distance_metric": distance_metric,
-                    "n_points": cfg.get("preprocessing", {}).get("resampling", {}).get("n_points"),
-                },
+                params=params,
             )
             labels = clusterer.fit_predict(D, metric="precomputed")
             metrics = compute_internal_metrics(D, labels, metric_mode="precomputed", include_noise=eval_cfg.get("include_noise", False))

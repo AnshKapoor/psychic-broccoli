@@ -5,12 +5,16 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import logging
+import time
 from typing import Iterable, List, Sequence, Tuple
 
 import numpy as np
 from scipy.spatial.distance import cdist
 
 from distance_metrics import dtw_distance, discrete_frechet_distance
+
+logger = logging.getLogger(__name__)
 
 
 def build_feature_matrix(
@@ -81,14 +85,44 @@ def pairwise_distance_matrix(
             raise ValueError(f"{metric} distance requires a sequence of (T,D) trajectories.")
         n = len(trajectories)
         D = np.zeros((n, n), dtype=float)
+        total_pairs = n * (n - 1) // 2
+        dtw_window_size = params.get("dtw_window_size") if params else None
+        log_every = params.get("log_every") if params else None
+        log_every = int(log_every) if log_every else None
+
+        logger.info(
+            "Computing %s distance matrix for %d trajectories (%d pairs).",
+            metric,
+            n,
+            total_pairs,
+        )
+        if metric == "dtw" and dtw_window_size is not None:
+            logger.info("DTW window size: %s", dtw_window_size)
+        start = time.perf_counter()
+        pairs_done = 0
         for i in range(n):
             D[i, i] = 0.0
             for j in range(i + 1, n):
                 if metric == "dtw":
-                    d = dtw_distance(trajectories[i], trajectories[j])
+                    d = dtw_distance(trajectories[i], trajectories[j], window_size=dtw_window_size)
                 else:
                     d = discrete_frechet_distance(trajectories[i], trajectories[j])
                 D[i, j] = D[j, i] = d
+                pairs_done += 1
+                if log_every and pairs_done % log_every == 0:
+                    elapsed = time.perf_counter() - start
+                    rate = pairs_done / elapsed if elapsed > 0 else 0.0
+                    remaining = total_pairs - pairs_done
+                    eta = remaining / rate if rate > 0 else float("inf")
+                    logger.info(
+                        "Distance progress: %d/%d pairs (%.1f%%), %.2f pairs/s, ETA %.1fs",
+                        pairs_done,
+                        total_pairs,
+                        100.0 * pairs_done / total_pairs if total_pairs else 100.0,
+                        rate,
+                        eta,
+                    )
+        logger.info("Computed %s distance matrix in %.1fs.", metric, time.perf_counter() - start)
     else:
         raise ValueError(f"Unsupported distance metric: {metric}")
 
