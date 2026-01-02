@@ -1,5 +1,5 @@
 input:
-  csv_glob: "Enhanced/matched_trajs_*.csv"
+  csv_glob: "output/csv/matched_trajs_*.csv"
   parse_dates: ["timestamp", "firstseen", "lastseen"]
   timezone: "UTC"
   preprocessed_csv: "output/run/csv/preprocessed_OPTICS_exp_5.csv"
@@ -19,8 +19,11 @@ flows:
   include: []
 
 preprocessing:
+  filter:
+    max_airport_distance_km: 25
   smoothing:
     enabled: true
+    method: "auto"  # options: auto/savgol, moving_average, median, ewm, none
     window_length: 9
     polyorder: 2
     columns: ["latitude", "longitude", "altitude"]

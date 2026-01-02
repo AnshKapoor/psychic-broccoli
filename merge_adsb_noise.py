@@ -395,6 +395,7 @@ def match_noise_to_adsb(
     buffer_frac: float = 0.5,
     window_min: int = 3,
     sample_interval_sec: int = 2,
+    max_airport_distance_m: float = 12_000.0,
     dedupe_traj: bool = True,
     test_mode: bool = False,
     test_mode_match_limit: int = 5,
@@ -426,6 +427,9 @@ def match_noise_to_adsb(
     sample_interval_sec:
         Minimum spacing between retained ADS-B samples (in seconds) inside the
         extracted trajectory slices.
+    max_airport_distance_m:
+        Maximum distance (in metres) from the airport centre to retain ADS-B
+        samples in each extracted trajectory slice.
     dedupe_traj:
         When ``True`` (default) overlapping ADS-B samples per measurement
         context (``MP``, ``t_ref``, ``icao24``, ``timestamp``) are deduplicated to
@@ -443,7 +447,8 @@ def match_noise_to_adsb(
     -------
     Tuple[pd.DataFrame, pd.DataFrame]
         A tuple containing the enriched noise DataFrame and the concatenated
-        trajectory slices limited to 12 km around the airport center.
+        trajectory slices limited to ``max_airport_distance_m`` around the
+        airport center.
     """
 
     logger.info("Starting noise to ADS-B matching workflow")
@@ -451,6 +456,11 @@ def match_noise_to_adsb(
     # 1) Load and tidy the noise measurements from Excel.
     df_noise = _load_noise_excel(df_noise)
     logger.debug("Noise dataframe columns: %s", df_noise.columns.tolist())
+
+    if "A/D" not in df_noise.columns:
+        df_noise["A/D"] = pd.NA
+    if "Runway" not in df_noise.columns:
+        df_noise["Runway"] = pd.NA
 
     if "Flugzeugtyp" in df_noise.columns:
         # Preserve the aircraft type specified in the Excel workbook for later validation.
@@ -661,12 +671,14 @@ def match_noise_to_adsb(
         slice6["aircraft_type_noise"] = df_noise.at[i, "aircraft_type_noise"]
         slice6["aircraft_type_adsb"] = df_noise.at[i, "aircraft_type_adsb"]
         slice6["aircraft_type_match"] = df_noise.at[i, "aircraft_type_match"]
+        slice6["A/D"] = df_noise.at[i, "A/D"] if "A/D" in df_noise.columns else pd.NA
+        slice6["Runway"] = df_noise.at[i, "Runway"] if "Runway" in df_noise.columns else pd.NA
 
         if not slice6.empty and {"latitude", "longitude"}.issubset(slice6.columns):
             slice6["dist_to_airport_m"] = distance_to_airport(
                 slice6["latitude"], slice6["longitude"]
             )
-            slice6 = slice6[slice6["dist_to_airport_m"] <= 12_000.0].copy()
+            slice6 = slice6[slice6["dist_to_airport_m"] <= float(max_airport_distance_m)].copy()
 
         if not slice6.empty:
             slice6 = _downsample_by_interval(slice6, "timestamp", sample_interval_sec)
@@ -688,7 +700,14 @@ def match_noise_to_adsb(
             break
 
     # 5) finalize
-    for column_name in ("icao24", "callsign", "aircraft_type_noise", "aircraft_type_adsb"):
+    for column_name in (
+        "icao24",
+        "callsign",
+        "aircraft_type_noise",
+        "aircraft_type_adsb",
+        "A/D",
+        "Runway",
+    ):
         if column_name in df_noise.columns:
             # Enforce pandas' native string dtype so parquet serialises mixed values reliably.
             df_noise[column_name] = df_noise[column_name].astype("string")
@@ -712,7 +731,14 @@ def match_noise_to_adsb(
                 df_traj = (
                     df_traj.sort_values(key_cols).drop_duplicates(subset=key_cols, keep="first")
                 )
-        for column_name in ("icao24", "callsign", "aircraft_type_noise", "aircraft_type_adsb"):
+        for column_name in (
+            "icao24",
+            "callsign",
+            "aircraft_type_noise",
+            "aircraft_type_adsb",
+            "A/D",
+            "Runway",
+        ):
             if column_name in df_traj.columns:
                 df_traj[column_name] = df_traj[column_name].astype("string")
         if "aircraft_type_match" in df_traj.columns:
@@ -732,6 +758,8 @@ def match_noise_to_adsb(
             "callsign",
             "MP",
             "t_ref",
+            "A/D",
+            "Runway",
             "aircraft_type_noise",
             "aircraft_type_adsb",
             "aircraft_type_match",
@@ -820,6 +848,18 @@ def main() -> None:
         help="Retain at most one ADS-B sample every N seconds inside each trajectory slice.",
     )
     parser.add_argument(
+        "--max-airport-distance-m",
+        type=float,
+        default=12_000.0,
+        help="Maximum distance in metres from the airport centre to retain in each trajectory slice.",
+    )
+    parser.add_argument(
+        "--max-airport-distance-km",
+        type=float,
+        default=None,
+        help="Maximum distance in kilometres from the airport centre (overrides --max-airport-distance-m).",
+    )
+    parser.add_argument(
         "--no-dedupe-traj",
         action="store_true",
         help="Disable deduplication of overlapping ADS-B samples in the parquet output.",
@@ -863,6 +903,10 @@ def main() -> None:
     logger.info("Writing detailed log to %s", log_path)
     logger.info("Console log level set to %s", logging.getLevelName(console_level))
 
+    max_airport_distance_m = float(args.max_airport_distance_m)
+    if args.max_airport_distance_km is not None:
+        max_airport_distance_m = float(args.max_airport_distance_km) * 1000.0
+
     match_noise_to_adsb(
         df_noise=args.noise_excel,
         adsb_joblib=args.adsb_joblib,
@@ -871,6 +915,7 @@ def main() -> None:
         buffer_frac=args.buffer_frac,
         window_min=args.window_min,
         sample_interval_sec=args.sample_interval_sec,
+        max_airport_distance_m=max_airport_distance_m,
         dedupe_traj=not args.no_dedupe_traj,
         test_mode=args.test_mode,
         test_mode_match_limit=args.test_mode_match_limit,

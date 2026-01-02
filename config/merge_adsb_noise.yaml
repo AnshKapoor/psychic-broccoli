@@ -1,0 +1,27 @@
+noise_excel: noise_data.xlsx
+
+adsb:
+  # Use either `joblib_glob` or an explicit `joblibs` list.
+  joblib_glob: "adsb/data_2022_*.joblib"
+  joblibs: []
+
+output:
+  # `merge_adsb_noise.py` writes to `output/parquet/<name>.parquet` and `output/csv/<name>.csv`.
+  # This controls only the base name passed as `--traj-output`.
+  traj_output_template: "matched_trajs_{month}_{year}.parquet"
+
+matching:
+  tol_sec: 10
+  buffer_frac: 0.5
+  window_min: 3
+  sample_interval_sec: 2
+  max_airport_distance_km: 25
+  dedupe_traj: true
+
+testing:
+  enabled: false
+  match_limit: 5
+
+logging:
+  level: INFO
+  log_file: null

@@ -21,8 +21,42 @@ except ImportError:  # pragma: no cover - defensive
 SMOOTH_DEFAULT_COLUMNS = ["latitude", "longitude", "altitude"]
 
 
-def smooth_series(values: pd.Series, window_length: int, polyorder: int) -> pd.Series:
-    """Smooth a numeric series with Savitzky-Golay or a moving average fallback."""
+def smooth_series(
+    values: pd.Series,
+    window_length: int,
+    polyorder: int,
+    method: str = "auto",
+) -> pd.Series:
+    """Smooth a numeric series using the configured method.
+
+    Supported methods:
+      - ``auto`` / ``savgol``: Savitzky-Golay if SciPy is available, otherwise moving average
+      - ``moving_average``: centred rolling mean
+      - ``median``: centred rolling median
+      - ``ewm``: exponential weighted moving average
+      - ``none``: no smoothing
+    """
+
+    method_norm = str(method or "auto").strip().lower().replace("-", "_")
+    if method_norm in {"none", "off", "disabled"}:
+        return values
+
+    if method_norm in {"ewm", "ema", "exponential"}:
+        span = max(int(window_length), 2)
+        return values.ewm(span=span, adjust=False).mean()
+
+    if method_norm in {"moving_average", "rolling_mean", "mean"}:
+        if window_length < 2:
+            return values
+        return values.rolling(window=int(window_length), center=True, min_periods=1).mean()
+
+    if method_norm in {"median", "rolling_median"}:
+        if window_length < 2:
+            return values
+        return values.rolling(window=int(window_length), center=True, min_periods=1).median()
+
+    if method_norm not in {"auto", "savgol", "savitzky_golay", "savitzkygolay"}:
+        raise ValueError(f"Unsupported smoothing method: {method}")
 
     if window_length < 3 or len(values) < window_length:
         return values
@@ -74,6 +108,7 @@ def preprocess_flights(
     df: pd.DataFrame,
     smoothing_cfg: Dict[str, object],
     resampling_cfg: Dict[str, object],
+    filter_cfg: Dict[str, object] | None = None,
     use_utm: bool = False,
     flow_keys: Sequence[str] = ("A/D", "Runway"),
 ) -> pd.DataFrame:
@@ -82,7 +117,15 @@ def preprocess_flights(
     Returns concatenated resampled trajectories.
     """
 
+    filter_cfg = filter_cfg or {}
+    max_airport_distance_m = filter_cfg.get("max_airport_distance_m")
+    if max_airport_distance_m is None and filter_cfg.get("max_airport_distance_km") is not None:
+        max_airport_distance_m = float(filter_cfg["max_airport_distance_km"]) * 1000.0
+    if max_airport_distance_m is not None:
+        max_airport_distance_m = float(max_airport_distance_m)
+
     smooth_enabled = smoothing_cfg.get("enabled", True)
+    smooth_method = str(smoothing_cfg.get("method", "auto"))
     window_length = int(smoothing_cfg.get("window_length", 7))
     polyorder = int(smoothing_cfg.get("polyorder", 2))
     smooth_cols = list(smoothing_cfg.get("columns", SMOOTH_DEFAULT_COLUMNS))
@@ -99,15 +142,29 @@ def preprocess_flights(
 
     outputs: List[pd.DataFrame] = []
     group_cols = [*flow_keys, "flight_id"]
-    for _, flight in df.groupby(group_cols):
+    for group_values, flight in df.groupby(group_cols):
+        flight_id = group_values[-1] if isinstance(group_values, tuple) else group_values
         flight_sorted = flight.sort_values("timestamp")
         if len(flight_sorted) < 2:
             continue
 
+        if max_airport_distance_m is not None and "dist_to_airport_m" in flight_sorted.columns:
+            flight_sorted = flight_sorted[
+                pd.to_numeric(flight_sorted["dist_to_airport_m"], errors="coerce")
+                <= max_airport_distance_m
+            ].copy()
+            if len(flight_sorted) < 2:
+                continue
+
         if smooth_enabled:
             for col in smooth_cols:
                 if col in flight_sorted.columns:
-                    flight_sorted[col] = smooth_series(flight_sorted[col].astype(float), window_length, polyorder)
+                    flight_sorted[col] = smooth_series(
+                        flight_sorted[col].astype(float),
+                        window_length,
+                        polyorder,
+                        method=smooth_method,
+                    )
 
         try:
             resampled = resample_trajectory(

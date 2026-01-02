@@ -110,6 +110,7 @@ def main(config_path: str = "config/backbone.yaml") -> None:
     preprocessing_cfg = cfg.get("preprocessing", {}) or {}
     smoothing_cfg = preprocessing_cfg.get("smoothing", {})
     resampling_cfg = preprocessing_cfg.get("resampling", {})
+    filter_cfg = preprocessing_cfg.get("filter", {}) or {}
     clustering_cfg: Dict[str, object] = cfg.get("clustering", {}) or {}
     method = clustering_cfg.get("method", "optics")
 
@@ -130,6 +131,7 @@ def main(config_path: str = "config/backbone.yaml") -> None:
         df,
         smoothing_cfg=smoothing_cfg,
         resampling_cfg=resampling_cfg,
+        filter_cfg=filter_cfg,
         use_utm=use_utm,
         flow_keys=flow_keys,
     )

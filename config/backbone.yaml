@@ -1,5 +1,5 @@
 input:
-  csv_glob: "Enhanced/matched_trajs_*.csv"
+  csv_glob: "output/csv/matched_trajs_*.csv"
   parse_dates: ["timestamp", "firstseen", "lastseen"]
   timezone: "UTC"
 
@@ -22,8 +22,13 @@ flows:
     - ["HEL"]
 
 preprocessing:
+  # Filter points by already-computed `dist_to_airport_m` so you can generate
+  # different preprocessed CSVs (e.g., 12km vs 20km) from the same matched CSVs.
+  filter:
+    max_airport_distance_km: 25
   smoothing:
     enabled: true
+    method: "auto"  # options: auto/savgol, moving_average, median, ewm, none
     window_length: 7
     polyorder: 2
     columns: ["latitude", "longitude", "altitude"]

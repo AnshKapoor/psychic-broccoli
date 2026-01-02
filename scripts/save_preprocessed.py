@@ -38,6 +38,7 @@ def main(config_path: str) -> None:
     preprocessing_cfg = cfg.get("preprocessing", {}) or {}
     smoothing_cfg = preprocessing_cfg.get("smoothing", {})
     resampling_cfg = preprocessing_cfg.get("resampling", {})
+    filter_cfg = preprocessing_cfg.get("filter", {}) or {}
 
     output_cfg = cfg.get("output", {}) or {}
     exp_name = str(output_cfg.get("experiment_name", "preprocessed"))
@@ -61,6 +62,7 @@ def main(config_path: str) -> None:
         df,
         smoothing_cfg=smoothing_cfg,
         resampling_cfg=resampling_cfg,
+        filter_cfg=filter_cfg,
         use_utm=use_utm,
         flow_keys=flow_keys,
     )
