@@ -341,7 +341,6 @@ completed_experiments:
     min_samples: 12
     xi: 0.05
     min_cluster_size: 0.05
-experiments:
 - name: optics_euclid_split_hunter
   experiment_name: EXP35_optics_euclid_split_hunter
   method: optics
@@ -376,6 +375,79 @@ experiments:
   agglomerative:
     n_clusters: 2
     linkage: ward
+experiments:
+- name: optics_euclid_ms8_xi02_mcs03
+  experiment_name: EXP38_optics_euclid_ms8_xi02_mcs03
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 8
+    xi: 0.02
+    min_cluster_size: 0.03
+- name: optics_euclid_ms8_xi03_mcs03
+  experiment_name: EXP39_optics_euclid_ms8_xi03_mcs03
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 8
+    xi: 0.03
+    min_cluster_size: 0.03
+- name: optics_euclid_ms8_xi03_mcs05
+  experiment_name: EXP40_optics_euclid_ms8_xi03_mcs05
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 8
+    xi: 0.03
+    min_cluster_size: 0.05
+- name: optics_euclid_ms6_xi03_mcs03
+  experiment_name: EXP41_optics_euclid_ms6_xi03_mcs03
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 6
+    xi: 0.03
+    min_cluster_size: 0.03
+- name: optics_euclid_ms10_xi03_mcs03
+  experiment_name: EXP42_optics_euclid_ms10_xi03_mcs03
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 10
+    xi: 0.03
+    min_cluster_size: 0.03
+- name: optics_euclid_ms12_xi03_mcs03
+  experiment_name: EXP43_optics_euclid_ms12_xi03_mcs03
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 12
+    xi: 0.03
+    min_cluster_size: 0.03
+- name: optics_euclid_ms8_xi03_mcs02
+  experiment_name: EXP44_optics_euclid_ms8_xi03_mcs02
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 8
+    xi: 0.03
+    min_cluster_size: 0.02
+- name: optics_euclid_ms8_xi03_mcs04
+  experiment_name: EXP45_optics_euclid_ms8_xi03_mcs04
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 8
+    xi: 0.03
+    min_cluster_size: 0.04
+- name: optics_euclid_ms8_xi03_mcs06
+  experiment_name: EXP46_optics_euclid_ms8_xi03_mcs06
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 8
+    xi: 0.03
+    min_cluster_size: 0.06
 flows:
   flow_keys:
   - A/D
@@ -402,7 +474,7 @@ features:
   - latitude
   - longitude
 input:
-  preprocessed_csv: output/run/csv/preprocessed_OPTICS_exp_5.csv
+  preprocessed_csv: output/run/csv/preprocessed_GLOBAL_OPTICS_exp_1_np50_25km_serial.csv
 output:
   dir: output
   base_experiment_name: named

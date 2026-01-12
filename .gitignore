@@ -10,7 +10,7 @@ data/processed/*
 Enhanced/*
 output/*
 
-
+matched_trajectories/*
 # Project outputs
 logs/
 adsb/
@@ -19,7 +19,7 @@ combined_noise_measurements.csv
 output/*.csv
 
 # External
-noise_simulation/
+noise_simulation/*
 
 # Reports
 reports/figures/*

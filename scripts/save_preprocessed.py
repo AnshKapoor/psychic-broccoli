@@ -39,6 +39,8 @@ def main(config_path: str) -> None:
     smoothing_cfg = preprocessing_cfg.get("smoothing", {})
     resampling_cfg = preprocessing_cfg.get("resampling", {})
     filter_cfg = preprocessing_cfg.get("filter", {}) or {}
+    serial_column = preprocessing_cfg.get("serial_column")
+    serial_start = int(preprocessing_cfg.get("serial_start", 1))
 
     output_cfg = cfg.get("output", {}) or {}
     exp_name = str(output_cfg.get("experiment_name", "preprocessed"))
@@ -66,6 +68,13 @@ def main(config_path: str) -> None:
         use_utm=use_utm,
         flow_keys=flow_keys,
     )
+
+    if serial_column:
+        if "flight_id" not in preprocessed.columns:
+            raise ValueError("Cannot assign serial numbers without a flight_id column.")
+        unique_ids = sorted(preprocessed["flight_id"].dropna().unique())
+        mapping = {fid: idx + serial_start for idx, fid in enumerate(unique_ids)}
+        preprocessed[serial_column] = preprocessed["flight_id"].map(mapping).astype(int)
 
     save_dataframe(preprocessed, out_path)
     print(f"Saved preprocessed data to {out_path}")

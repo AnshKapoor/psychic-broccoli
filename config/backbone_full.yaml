@@ -1,5 +1,5 @@
 input:
-  csv_glob: "output/csv/matched_trajs_*.csv"
+  csv_glob: "matched_trajectories/matched_trajs_*.csv"
   parse_dates: ["timestamp", "firstseen", "lastseen"]
   timezone: "UTC"
   preprocessed_csv: "output/run/csv/preprocessed_OPTICS_exp_5.csv"
@@ -21,6 +21,8 @@ flows:
 preprocessing:
   filter:
     max_airport_distance_km: 25
+  serial_column: "trajectory_serial"
+  serial_start: 1
   smoothing:
     enabled: true
     method: "auto"  # options: auto/savgol, moving_average, median, ewm, none
@@ -28,7 +30,7 @@ preprocessing:
     polyorder: 2
     columns: ["latitude", "longitude", "altitude"]
   resampling:
-    n_points: 60
+    n_points: 50
     method: "time"
 
 clustering:
@@ -61,7 +63,7 @@ testing:
 
 output:
   dir: "output"
-  experiment_name: "GLOBAL_OPTICS_exp_1"
+  experiment_name: "GLOBAL_OPTICS_exp_1_np50_25km_serial"
   save_preprocessed: true
   save_flight_metadata: true
   save_backbones: true

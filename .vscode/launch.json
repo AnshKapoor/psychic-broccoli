@@ -219,6 +219,24 @@
             "cwd": "${workspaceFolder}"
         },
         {
+            "name": "Convert ADSB Joblib to Parquet (April)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/convert_adsb_joblib_to_csv.py",
+            "args": [
+                "--joblib",
+                "adsb/data_2022_april.joblib",
+                "--output-dir",
+                "output/adsb_parquet",
+                "--chunksize",
+                "200000",
+                "--compression",
+                "snappy"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
             "name": "Plot Experiment Results",
             "type": "debugpy",
             "request": "launch",
@@ -227,6 +245,17 @@
                 "GLOBAL_AGGLO_exp_1",
                 "--max-flights-per-cluster",
                 "30"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Generate Backbone Tracks",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/plot_experiment_results.py",
+            "args": [
+                "EXP46_optics_euclid_ms8_xi03_mcs06"
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
