@@ -199,8 +199,17 @@ class TwoStageClusterer:
             idx = np.where(stage1_labels == cluster_id)[0]
             if idx.size == 0:
                 continue
+            # Skip tiny clusters that cannot satisfy stage2 constraints.
+            if idx.size < 2:
+                continue
+
+            local_params = dict(stage2_params)
+            min_samples = local_params.get("min_samples")
+            if min_samples is not None and min_samples > idx.size:
+                local_params["min_samples"] = idx.size
+
             stage2_clusterer = get_clusterer(stage2_method)
-            local_labels = stage2_clusterer.fit_predict(X[idx], **stage2_params)
+            local_labels = stage2_clusterer.fit_predict(X[idx], **local_params)
             unique_local = [c for c in np.unique(local_labels) if c != -1]
             mapping = {c: next_label + i for i, c in enumerate(unique_local)}
             for pos, local_label in zip(idx, local_labels):

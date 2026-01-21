@@ -173,6 +173,8 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
         log_lines.append(
             f"  Metrics: silhouette={metrics.get('silhouette')} davies_bouldin={metrics.get('davies_bouldin')} calinski_harabasz={metrics.get('calinski_harabasz')}"
         )
+        if metrics.get("reason"):
+            log_lines.append(f"  Metrics: reason={metrics.get('reason')}")
 
         counts = pd.Series(labels).value_counts().sort_index()
         counts_str = ", ".join(f"{int(k)}={int(v)}" for k, v in counts.items())
