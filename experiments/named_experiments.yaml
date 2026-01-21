@@ -375,7 +375,6 @@ completed_experiments:
   agglomerative:
     n_clusters: 2
     linkage: ward
-experiments:
 - name: optics_euclid_ms8_xi02_mcs03
   experiment_name: EXP38_optics_euclid_ms8_xi02_mcs03
   method: optics
@@ -448,6 +447,85 @@ experiments:
     min_samples: 8
     xi: 0.03
     min_cluster_size: 0.06
+experiments:
+- name: kmeans_k6_baseline_utm
+  experiment_name: EXP47_kmeans_k6_baseline_utm
+  method: kmeans
+  distance_metric: euclidean
+  kmeans:
+    n_clusters: 6
+    n_init: 30
+    random_state: 11
+- name: optics_euclid_ms8_xi03_mcs05_utm
+  experiment_name: EXP48_optics_euclid_ms8_xi03_mcs05_utm
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 8
+    xi: 0.03
+    min_cluster_size: 0.05
+- name: optics_euclid_ms8_xi03_mcs06_utm
+  experiment_name: EXP49_optics_euclid_ms8_xi03_mcs06_utm
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 8
+    xi: 0.03
+    min_cluster_size: 0.06
+- name: optics_euclid_ms8_xi02_mcs03_utm
+  experiment_name: EXP50_optics_euclid_ms8_xi02_mcs03_utm
+  method: optics
+  distance_metric: euclidean
+  optics:
+    min_samples: 8
+    xi: 0.02
+    min_cluster_size: 0.03
+- name: hdbscan_default_utm
+  experiment_name: EXP51_hdbscan_default_utm
+  method: hdbscan
+  distance_metric: euclidean
+  hdbscan:
+    min_cluster_size: 60
+    min_samples: 12
+    cluster_selection_method: eom
+- name: hdbscan_large_clusters_utm
+  experiment_name: EXP52_hdbscan_large_clusters_utm
+  method: hdbscan
+  distance_metric: euclidean
+  hdbscan:
+    min_cluster_size: 120
+    min_samples: 12
+- name: kmeans6_optics_refine_utm
+  experiment_name: EXP53_kmeans6_optics_refine_utm
+  method: two_stage
+  distance_metric: euclidean
+  two_stage:
+    stage1_method: kmeans
+    stage1_params:
+      n_clusters: 6
+      n_init: 30
+      random_state: 11
+    stage2_method: optics
+    stage2_params:
+      min_samples: 12
+      xi: 0.07
+      min_cluster_size: 0.05
+- name: optics_dtw_ms8_xi03_mcs05_utm
+  experiment_name: EXP54_optics_dtw_ms8_xi03_mcs05_utm
+  method: optics
+  distance_metric: dtw
+  optics:
+    min_samples: 8
+    xi: 0.03
+    min_cluster_size: 0.05
+- name: optics_frechet_ms8_xi03_mcs05_utm
+  experiment_name: EXP55_optics_frechet_ms8_xi03_mcs05_utm
+  method: optics
+  distance_metric: frechet
+  optics:
+    min_samples: 8
+    xi: 0.03
+    min_cluster_size: 0.05
 flows:
   flow_keys:
   - A/D
@@ -471,10 +549,10 @@ flows:
     - 27R
 features:
   vector_cols:
-  - latitude
-  - longitude
+  - x_utm
+  - y_utm
 input:
-  preprocessed_csv: output/run/csv/preprocessed_GLOBAL_OPTICS_exp_1_np50_25km_serial.csv
+  preprocessed_csv: output/run/csv/preprocessed_OPTICS_exp_5_lenmed_top80_n40.csv
 output:
   dir: output
   base_experiment_name: named
