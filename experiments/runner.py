@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
@@ -80,6 +81,33 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
     # Prepare outputs
     metrics_rows: List[dict] = []
     label_paths: List[Path] = []
+    log_lines: List[str] = []
+
+    # Build experiment log header (human-readable).
+    log_lines.append(f"Experiment: {experiment_name}")
+    log_lines.append(f"Config: {cfg_path}")
+    log_lines.append(f"Run started (UTC): {datetime.now(timezone.utc).isoformat()}")
+    log_lines.append(f"Method: {method}")
+    log_lines.append(f"Distance metric: {distance_metric}")
+    log_lines.append(f"Preprocessed CSV: {preprocessed_csv}")
+    vector_cols = cfg.get("features", {}).get("vector_cols", ["x_utm", "y_utm"])
+    log_lines.append(f"Vector columns: {vector_cols}")
+    resample_n = cfg.get("preprocessing", {}).get("resampling", {}).get("n_points")
+    if resample_n is not None:
+        log_lines.append(f"Resampling n_points: {resample_n}")
+    log_lines.append(f"Flow keys: {flow_keys if flow_keys else ['GLOBAL']}")
+
+    method_params = clustering_cfg.get(method, {}) or {}
+    if method == "two_stage":
+        stage1 = method_params.get("stage1_method")
+        stage2 = method_params.get("stage2_method")
+        stage1_params = method_params.get("stage1_params", {})
+        stage2_params = method_params.get("stage2_params", {})
+        log_lines.append(f"Stage1: {stage1} params={stage1_params}")
+        log_lines.append(f"Stage2: {stage2} params={stage2_params}")
+    else:
+        log_lines.append(f"Params: {method_params}")
+    log_lines.append("")
 
     # Per-flow clustering (or global if no flow_keys provided)
     if flow_keys:
@@ -127,6 +155,29 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
                 metrics["bic"] = float(model.bic(X))
                 metrics["aic"] = float(model.aic(X))
 
+        # Log per-flow details.
+        flight_counts = flow_df.groupby("flight_id").size()
+        n_points_min = int(flight_counts.min()) if not flight_counts.empty else 0
+        n_points_med = int(flight_counts.median()) if not flight_counts.empty else 0
+        n_points_max = int(flight_counts.max()) if not flight_counts.empty else 0
+
+        if flow_keys:
+            flow_label = "_".join(str(v) for v in flow_vals)
+        else:
+            flow_label = "GLOBAL"
+
+        log_lines.append(f"Flow: {flow_label}")
+        log_lines.append(f"  Flights: {len(labels)}")
+        log_lines.append(f"  Points: total={len(flow_df)} per_flight[min/med/max]={n_points_min}/{n_points_med}/{n_points_max}")
+        log_lines.append(f"  Metrics: n_clusters={metrics.get('n_clusters')} noise_frac={metrics.get('noise_frac')}")
+        log_lines.append(
+            f"  Metrics: silhouette={metrics.get('silhouette')} davies_bouldin={metrics.get('davies_bouldin')} calinski_harabasz={metrics.get('calinski_harabasz')}"
+        )
+
+        counts = pd.Series(labels).value_counts().sort_index()
+        counts_str = ", ".join(f"{int(k)}={int(v)}" for k, v in counts.items())
+        log_lines.append(f"  Cluster counts: {counts_str}")
+
         if flow_keys:
             metrics.update({key: val for key, val in zip(flow_keys, flow_vals)})
         else:
@@ -143,6 +194,8 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
         label_path = output_dir / f"labels_{flow_name}.parquet"
         labeled.to_parquet(label_path, index=False)
         label_paths.append(label_path)
+        log_lines.append(f"  Labels: {label_path}")
+        log_lines.append("")
 
     # Cluster/runway breakdown (helpful when clustering across all flows)
     labels_all = []
@@ -181,8 +234,10 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
 
     # Save resolved config
     (output_dir / "config_resolved.yaml").write_text(yaml.dump(cfg), encoding="utf-8")
+    log_path = output_dir / "experiment_log.txt"
+    log_path.write_text("\n".join(log_lines), encoding="utf-8")
     (output_dir / "runtime_log.txt").write_text(
-        json.dumps({"labels": [str(p) for p in label_paths]}, indent=2),
+        json.dumps({"labels": [str(p) for p in label_paths], "experiment_log": str(log_path)}, indent=2),
         encoding="utf-8",
     )
 
