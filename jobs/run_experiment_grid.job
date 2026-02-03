@@ -38,7 +38,7 @@ export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 
-if [ -f "${SLURM_SUBMIT_DIR:-}/experiments/named_experiments.yaml" ]; then
+if [ -f "${SLURM_SUBMIT_DIR:-}/experiments/experiment_grid.yaml" ]; then
   cd "$SLURM_SUBMIT_DIR"
 elif [ -d /home/y0113724/psychic-broccoli ]; then
   cd /home/y0113724/psychic-broccoli
@@ -47,16 +47,16 @@ else
   exit 1
 fi
 
-if [ ! -f experiments/named_experiments.yaml ]; then
-  echo "[error] Missing experiments/named_experiments.yaml in $(pwd)"
+if [ ! -f experiments/experiment_grid.yaml ]; then
+  echo "[error] Missing experiments/experiment_grid.yaml in $(pwd)"
   exit 1
 fi
 
-if [ ! -f output/run/csv/preprocessed_OPTICS_exp_5_lenmed_top80_n40.csv ]; then
-  echo "[error] Missing preprocessed CSV: output/run/csv/preprocessed_OPTICS_exp_5_lenmed_top80_n40.csv"
+if [ ! -f data/preprocessed/preprocessed_1.csv ]; then
+  echo "[error] Missing preprocessed CSV: data/preprocessed/preprocessed_1.csv"
   exit 1
 fi
 
-# Run the named experiment grid (includes EXP47-EXP50 DTW/Frechet).
+# Run the standardized experiment grid.
 srun /home/y0113724/venvs/psychic/bin/python scripts/run_experiment_grid.py \
-  --grid experiments/named_experiments.yaml
+  --grid experiments/experiment_grid.yaml

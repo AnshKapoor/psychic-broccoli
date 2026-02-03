@@ -60,7 +60,7 @@ fi
 
 srun /home/y0113724/venvs/psychic/bin/python scripts/convert_adsb_joblib_to_csv.py \
   --input-dir "$JOBLIB_DIR" \
-  --output-dir output/adsb_parquet \
+  --output-dir data/adsb_parquet \
   --chunksize 200000 \
   --compression snappy
 

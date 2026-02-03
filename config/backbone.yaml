@@ -1,5 +1,5 @@
 input:
-  csv_glob: "output/csv/matched_trajs_*.csv"
+  csv_glob: "data/merged/matched_trajs_*.csv"
   parse_dates: ["timestamp", "firstseen", "lastseen"]
   timezone: "UTC"
 

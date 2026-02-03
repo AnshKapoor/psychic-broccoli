@@ -1,0 +1,46 @@
+base_config: config/backbone_full.yaml
+
+variants:
+  - preprocessed_id: 1
+    preprocessing:
+      resampling:
+        n_points: 40
+        method: "time"
+      smoothing:
+        enabled: true
+        method: "savgol"
+        window_length: 9
+        polyorder: 2
+
+  - preprocessed_id: 2
+    preprocessing:
+      resampling:
+        n_points: 60
+        method: "time"
+      smoothing:
+        enabled: true
+        method: "savgol"
+        window_length: 9
+        polyorder: 2
+
+  - preprocessed_id: 3
+    preprocessing:
+      resampling:
+        n_points: 80
+        method: "time"
+      smoothing:
+        enabled: true
+        method: "savgol"
+        window_length: 9
+        polyorder: 2
+
+  - preprocessed_id: 4
+    preprocessing:
+      resampling:
+        n_points: 50
+        method: "distance"
+      smoothing:
+        enabled: true
+        method: "savgol"
+        window_length: 9
+        polyorder: 2

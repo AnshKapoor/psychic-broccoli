@@ -39,7 +39,6 @@ def main(grid_path: Path) -> None:
     grid = yaml.safe_load(grid_path.read_text(encoding="utf-8")) or {}
     experiments = grid.get("experiments", [])
     base_output = grid.get("output", {}).get("dir", "output")
-    base_name = grid.get("output", {}).get("base_experiment_name", "grid")
     base_cfg_path = Path("config/backbone_full.yaml")
     base_cfg = yaml.safe_load(base_cfg_path.read_text(encoding="utf-8"))
 
@@ -56,6 +55,13 @@ def main(grid_path: Path) -> None:
         else:
             param_space = [{}]
 
+        explicit_name = exp.get("experiment_name")
+        if len(param_space) > 1 and not explicit_name:
+            raise ValueError(
+                f"Experiment '{exp_name}' expands to multiple runs but has no explicit experiment_name. "
+                "Provide explicit experiment_name entries for each run to keep numbering stable."
+            )
+
         for idx, params in enumerate(param_space, start=1):
             cfg = copy.deepcopy(base_cfg)
             cfg["clustering"]["method"] = method
@@ -67,12 +73,13 @@ def main(grid_path: Path) -> None:
             grid_features = grid.get("features")
             if grid_features:
                 cfg["features"] = copy.deepcopy(grid_features)
-            explicit_name = exp.get("experiment_name")
+            exp_input = exp.get("input")
+            if exp_input:
+                cfg.setdefault("input", {}).update(copy.deepcopy(exp_input))
             if explicit_name:
-                suffix = f"_run{idx}" if len(param_space) > 1 else ""
-                cfg["output"]["experiment_name"] = f"{explicit_name}{suffix}"
+                cfg["output"]["experiment_name"] = explicit_name
             else:
-                cfg["output"]["experiment_name"] = f"{base_name}_{exp_name}_{method}_run{idx}"
+                cfg["output"]["experiment_name"] = exp_name
             # Use provided preprocessed CSV if specified in grid
             if "input" in grid and "preprocessed_csv" in grid["input"]:
                 cfg.setdefault("input", {})["preprocessed_csv"] = grid["input"]["preprocessed_csv"]
@@ -80,8 +87,12 @@ def main(grid_path: Path) -> None:
             # Write temp config and run
             tmp_cfg_path = Path(f".tmp_grid_cfg_{exp_name}_{idx}.yaml")
             tmp_cfg_path.write_text(yaml.dump(cfg), encoding="utf-8")
-            run_experiment(tmp_cfg_path)
-            tmp_cfg_path.unlink()
+            try:
+                run_experiment(tmp_cfg_path)
+            except Exception as exc:
+                print(f"[error] experiment failed: {cfg['output']['experiment_name']} -> {exc}", file=sys.stderr)
+            finally:
+                tmp_cfg_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

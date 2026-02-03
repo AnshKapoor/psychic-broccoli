@@ -1,0 +1,374 @@
+"""Compute ground-truth cumulative_res for all flights in batches.
+
+This script runs Doc29 simulations for every flight in a preprocessed dataset,
+grouped by aircraft type, runway, and A/D. It aggregates Doc29 output using the
+`cumulative_res` column and writes a single ground-truth result that can be
+reused across experiments that share the same preprocessed file.
+
+Usage:
+  python noise_simulation/run_doc29_ground_truth.py \
+    --preprocessed data/preprocessed/preprocessed_1.csv \
+    --matched-dir matched_trajectories \
+    --output-root noise_simulation/results_ground_truth/exp5_n40
+
+Example input formats:
+  - Preprocessed CSV columns: flight_id, step, x_utm, y_utm, A/D, Runway, icao24
+  - Matched CSV columns: icao24, aircraft_type_adsb, aircraft_type_noise
+
+Key outputs:
+  <output-root>/ground_truth_cumulative.csv
+  <output-root>/groups/<A_D>_<Runway>/<AircraftType>/group_cumulative.csv
+  <output-root>/summary.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
+
+import pandas as pd
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from noise_simulation import generate_doc29_inputs as doc29_inputs
+from noise_simulation.automation.aircraft_types import (
+    NPD_TYPE_MAP,
+    build_flight_meta,
+    build_flight_type_map,
+    build_icao_type_map,
+)
+from noise_simulation.automation.doc29_runner import run_doc29
+from noise_simulation.automation.flight_csv import (
+    FlightCsvConfig,
+    FlightEntry,
+    build_columns,
+    write_flight_csv,
+)
+from noise_simulation.automation.groundtruth_tracks import generate_groundtruth_tracks
+
+
+def _npd_suffix(ad: str) -> str:
+    """Return NPD suffix for A/D.
+
+    Usage:
+      suffix = _npd_suffix("Landung")  # "A"
+    """
+    if ad == "Landung":
+        return "A"
+    if ad == "Start":
+        return "D"
+    raise ValueError(f"Unsupported A/D label: {ad}")
+
+
+def _safe_name(value: str) -> str:
+    """Return a filesystem-friendly name.
+
+    Usage:
+      safe = _safe_name("B738/CFM")
+    """
+    return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in value)
+
+
+def _relative_to_doc29(doc29_root: Path, path: Path) -> str:
+    """Return POSIX-style path relative to doc29_root.
+
+    Usage:
+      rel = _relative_to_doc29(doc29_root, doc29_root / "NPD_data" / "B734_A.csv")
+    """
+    return path.relative_to(doc29_root).as_posix()
+
+
+def _build_flight_cfg(
+    ad: str,
+    runway: str,
+    npd_table: str,
+    height_profile: str,
+    spectral_class: str,
+    reference_speed: str,
+    engine_type: str,
+    engine_position: str,
+    default_startpoint: str,
+) -> FlightCsvConfig:
+    """Build shared flight.csv config for a single A/D + runway.
+
+    Usage:
+      cfg = _build_flight_cfg("Start", "09L", "NPD_data/B738_D.csv", ...)
+    """
+    mode = doc29_inputs.MODE_MAP[ad]
+    return FlightCsvConfig(
+        mode=mode,
+        default_startpoint=default_startpoint,
+        first_point=doc29_inputs._format_first_point(runway, mode),
+        reference_speed=reference_speed,
+        engine_type=engine_type,
+        engine_position=engine_position,
+        npd_table=npd_table,
+        runway_file=doc29_inputs.RUNWAY_FILE_MAP[runway],
+        height_profile=height_profile,
+        nr_night="0",
+        spectral_class=spectral_class,
+    )
+
+
+def _configure_logging(log_file: Path) -> logging.Logger:
+    """Configure a file + console logger with timestamps.
+
+    Usage:
+      logger = _configure_logging(Path("run_ground_truth.log"))
+    """
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger("doc29_ground_truth")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+
+    fmt = "%(asctime)s | %(levelname)s | %(message)s"
+    formatter = logging.Formatter(fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S")
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    return logger
+
+
+def _chunk_list(values: List[int], batch_size: int) -> Iterable[List[int]]:
+    """Yield successive batches from a list.
+
+    Usage:
+      for batch in _chunk_list(ids, 500):
+          ...
+    """
+    for idx in range(0, len(values), batch_size):
+        yield values[idx : idx + batch_size]
+
+
+def _add_cumulative(
+    accum: Optional[pd.DataFrame],
+    new: pd.DataFrame,
+) -> pd.DataFrame:
+    """Sum cumulative_res by (x, y, z) across Doc29 outputs.
+
+    Input format (semicolon CSV):
+      x;y;z;...;cumulative_res
+
+    Returns:
+      DataFrame with columns: x, y, z, cumulative_res
+    """
+    cols = ["x", "y", "z", "cumulative_res"]
+    if not set(cols).issubset(new.columns):
+        raise ValueError("Doc29 output missing required columns: x, y, z, cumulative_res")
+    new = new[cols].copy()
+    if accum is None:
+        return new
+    merged = accum.merge(new, on=["x", "y", "z"], how="outer", suffixes=("_a", "_b"))
+    merged["cumulative_res"] = merged["cumulative_res_a"].fillna(0) + merged[
+        "cumulative_res_b"
+    ].fillna(0)
+    return merged[["x", "y", "z", "cumulative_res"]]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Compute ground-truth cumulative_res in batches.")
+    parser.add_argument("--preprocessed", required=True, help="Preprocessed CSV with flight_id, A/D, Runway, icao24.")
+    parser.add_argument("--matched-dir", default="matched_trajectories", help="Directory containing matched_trajs_*.csv.")
+    parser.add_argument("--doc29-root", default="noise_simulation/doc-29-implementation", help="Doc29 implementation root.")
+    parser.add_argument("--output-root", required=True, help="Output folder for ground-truth results.")
+    parser.add_argument("--batch-size", type=int, default=1000, help="Flights per Doc29 batch run.")
+    parser.add_argument("--interpolation-length", type=float, default=200.0, help="Groundtrack interpolation spacing.")
+    parser.add_argument("--cumulative-metric", default="Leq_day", help="Doc29 cumulative metric.")
+    parser.add_argument("--time-in-s", type=float, default=86400 * 365, help="Time horizon in seconds.")
+    parser.add_argument("--reference-speed", default="160", help="Reference speed for flight.csv.")
+    parser.add_argument("--engine-type", default="turbofan", help="Engine type for flight.csv.")
+    parser.add_argument("--engine-position", default="wing-mounted", help="Engine position for flight.csv.")
+    parser.add_argument("--default-startpoint", default="True", help="Default startpoint (True/False).")
+    parser.add_argument("--keep-tracks", action="store_true", help="Keep generated groundtracks on disk.")
+    parser.add_argument("--log-file", default=None, help="Optional log file path.")
+    args = parser.parse_args()
+
+    preprocessed_path = Path(args.preprocessed)
+    if not preprocessed_path.is_absolute():
+        preprocessed_path = (REPO_ROOT / preprocessed_path).resolve()
+    matched_dir = Path(args.matched_dir)
+    if not matched_dir.is_absolute():
+        matched_dir = (REPO_ROOT / matched_dir).resolve()
+    matched_paths = sorted(matched_dir.glob("matched_trajs_*.csv"))
+    if not matched_paths:
+        raise FileNotFoundError(f"No matched_trajs_*.csv in {matched_dir}")
+
+    doc29_root = (REPO_ROOT / args.doc29_root).resolve()
+    if not doc29_root.exists():
+        raise FileNotFoundError(f"Doc29 root not found: {doc29_root}")
+
+    output_root = Path(args.output_root)
+    if not output_root.is_absolute():
+        output_root = (REPO_ROOT / output_root).resolve()
+    log_path = Path(args.log_file) if args.log_file else (output_root / "run_ground_truth.log")
+    logger = _configure_logging(log_path)
+
+    logger.info("Loading flight metadata and aircraft types...")
+    flight_meta = build_flight_meta(preprocessed_path)
+    icao_set = {meta["icao24"] for meta in flight_meta.values() if meta["icao24"] != "UNKNOWN"}
+    icao_map = build_icao_type_map(matched_paths, icao_set)
+    flight_type_map = build_flight_type_map(flight_meta, icao_map)
+
+    grouped: Dict[Tuple[str, str, str], List[int]] = {}
+    allowed_types = set(NPD_TYPE_MAP.values())
+    for fid, meta in flight_meta.items():
+        ad = meta.get("A/D", "UNKNOWN")
+        runway = meta.get("Runway", "UNKNOWN")
+        aircraft_type = flight_type_map.get(fid, "UNKNOWN")
+        if aircraft_type not in allowed_types:
+            continue
+        key = (ad, runway, aircraft_type)
+        grouped.setdefault(key, []).append(fid)
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    groups_root = output_root / "groups"
+    groundtracks_root = doc29_root / "Groundtracks" / "ground_truth"
+    flight_csv_root = output_root / "flight_csv"
+
+    global_accum: Optional[pd.DataFrame] = None
+    group_summaries = []
+
+    for (ad, runway, aircraft_type), flight_ids in sorted(grouped.items()):
+        if ad not in doc29_inputs.MODE_MAP or runway not in doc29_inputs.RUNWAY_FILE_MAP:
+            logger.info("Skipping unsupported flow: %s %s", ad, runway)
+            continue
+        if aircraft_type == "UNKNOWN":
+            logger.info("Skipping UNKNOWN aircraft type for %s %s", ad, runway)
+            continue
+
+        npd_id = NPD_TYPE_MAP.get(aircraft_type, aircraft_type)
+        npd_suffix = _npd_suffix(ad)
+        npd_path = doc29_root / "NPD_data" / f"{npd_id}_{npd_suffix}.csv"
+        if not npd_path.exists():
+            logger.info("Skipping %s: missing NPD table %s", npd_id, npd_path)
+            continue
+
+        height_profile = (
+            doc29_root
+            / "Flight_profiles"
+            / ("reference_arrival.csv" if ad == "Landung" else "reference_departure.csv")
+        )
+        spectral_class = doc29_root / "Atmosphere_model" / "Spectral_classes.csv"
+        cfg = _build_flight_cfg(
+            ad=ad,
+            runway=runway,
+            npd_table=_relative_to_doc29(doc29_root, npd_path),
+            height_profile=_relative_to_doc29(doc29_root, height_profile),
+            spectral_class=_relative_to_doc29(doc29_root, spectral_class),
+            reference_speed=args.reference_speed,
+            engine_type=args.engine_type,
+            engine_position=args.engine_position,
+            default_startpoint=args.default_startpoint,
+        )
+
+        flow_name = f"{ad}_{runway}"
+        safe_type = _safe_name(npd_id)
+        group_dir = groups_root / flow_name / safe_type
+        group_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Processing group %s / %s (%d flights)", flow_name, npd_id, len(flight_ids))
+
+        group_accum: Optional[pd.DataFrame] = None
+        batches = list(_chunk_list(sorted(flight_ids), args.batch_size))
+        for batch_idx, batch_ids in enumerate(batches, start=1):
+            batch_tag = f"batch_{batch_idx:04d}"
+            logger.info("  Batch %s with %d flights", batch_tag, len(batch_ids))
+
+            tracks_out = groundtracks_root / flow_name / safe_type / batch_tag
+            flights_by_type = {npd_id: batch_ids}
+            tracks = generate_groundtruth_tracks(
+                preprocessed_path,
+                flights_by_type,
+                tracks_out,
+                runway=runway,
+                mode=doc29_inputs.MODE_MAP[ad],
+                interpolation_length=args.interpolation_length,
+            )
+
+            entries: List[FlightEntry] = []
+            for col_idx, (fid, track_path) in enumerate(tracks.get(npd_id, []), start=1):
+                rel = _relative_to_doc29(doc29_root, track_path)
+                entries.append(FlightEntry(f"Flight {col_idx}", rel, "1"))
+
+            if not entries:
+                logger.info("  No tracks generated for batch %s, skipping.", batch_tag)
+                continue
+
+            flight_csv = flight_csv_root / flow_name / safe_type / f"Flight_groundtruth_{batch_tag}.csv"
+            columns = build_columns(entries, cfg)
+            write_flight_csv(columns, flight_csv)
+
+            output_csv = group_dir / f"groundtruth_{batch_tag}.csv"
+            run_doc29(
+                doc29_root,
+                doc29_root / "Input_Airport.csv",
+                flight_csv,
+                args.cumulative_metric,
+                args.time_in_s,
+                output_csv,
+            )
+
+            batch_df = pd.read_csv(output_csv, sep=";")
+            group_accum = _add_cumulative(group_accum, batch_df)
+
+            if not args.keep_tracks:
+                for _, track_path in tracks.get(npd_id, []):
+                    track_path.unlink(missing_ok=True)
+                if tracks_out.exists():
+                    try:
+                        tracks_out.rmdir()
+                    except OSError:
+                        pass
+
+        if group_accum is None:
+            logger.info("  No output for group %s / %s", flow_name, npd_id)
+            continue
+
+        group_out = group_dir / "group_cumulative.csv"
+        group_accum.to_csv(group_out, sep=";", index=False)
+        global_accum = _add_cumulative(global_accum, group_accum)
+
+        group_summaries.append(
+            {
+                "flow": flow_name,
+                "aircraft_type": npd_id,
+                "n_flights": len(flight_ids),
+                "group_output": str(group_out),
+            }
+        )
+
+    if global_accum is None:
+        raise RuntimeError("No ground-truth outputs were generated. Check inputs and NPD tables.")
+
+    global_out = output_root / "ground_truth_cumulative.csv"
+    global_accum.to_csv(global_out, sep=";", index=False)
+
+    summary = {
+        "preprocessed": str(preprocessed_path),
+        "output": str(global_out),
+        "groups": group_summaries,
+        "batch_size": args.batch_size,
+        "cumulative_metric": args.cumulative_metric,
+        "time_in_s": args.time_in_s,
+    }
+    with (output_root / "summary.json").open("w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2)
+
+    logger.info("Ground truth complete. Output: %s", global_out)
+
+
+if __name__ == "__main__":
+    main()

@@ -414,11 +414,10 @@ def match_noise_to_adsb(
     out_traj_parquet:
         Optional file name (with optional subdirectories) that determines how the
         extracted ADS-B trajectory snippets are written. By default outputs are
-        stored under ``output/parquet`` and ``output/csv`` using the same relative
-        subdirectory and base name.
+        stored under ``data/merged`` using the same relative subdirectory and base name.
     output_dir:
         Optional directory to write both parquet and CSV outputs. When provided,
-        it overrides the ``output/parquet`` and ``output/csv`` layout.
+        it overrides the ``data/merged`` layout.
     tol_sec:
         Time tolerance in seconds used when searching for an ADS-B hit around the
         noise measurement timestamp.
@@ -789,13 +788,11 @@ def match_noise_to_adsb(
             relative_dir = Path()
 
         if output_dir is None:
-            output_root = Path("output")
-            parquet_path = output_root / "parquet" / relative_dir / f"{base_stem}.parquet"
-            csv_path = output_root / "csv" / relative_dir / f"{base_stem}.csv"
+            output_root = Path("data") / "merged"
         else:
             output_root = Path(output_dir)
-            parquet_path = output_root / relative_dir / f"{base_stem}.parquet"
-            csv_path = output_root / relative_dir / f"{base_stem}.csv"
+        parquet_path = output_root / relative_dir / f"{base_stem}.parquet"
+        csv_path = output_root / relative_dir / f"{base_stem}.csv"
 
         parquet_path.parent.mkdir(parents=True, exist_ok=True)
         csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -829,16 +826,16 @@ def main() -> None:
         default=None,
         help=(
             "Base file name (with optional subdirectories) for trajectory outputs. "
-            "Files are written to output/parquet and output/csv unless --output-dir is set."
+            "Files are written to data/merged unless --output-dir is set."
         ),
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=None,
+        default=Path("data/merged"),
         help=(
-            "Optional directory to write both parquet and CSV outputs. "
-            "Overrides the default output/parquet and output/csv layout."
+            "Directory to write both parquet and CSV outputs. "
+            "Defaults to data/merged."
         ),
     )
     parser.add_argument(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -16,8 +17,75 @@ from backbone_tracks.preprocessing import preprocess_flights
 from backbone_tracks.segmentation import segment_flights
 
 
+def configure_logging(cfg: dict) -> None:
+    """Configure logging based on config settings."""
+
+    logging_cfg = cfg.get("logging", {}) or {}
+    level_name = str(logging_cfg.get("level", "INFO")).upper()
+    level = getattr(logging, level_name, logging.INFO)
+    fmt = "%(levelname)s | %(message)s"
+
+    handlers = []
+    log_dir = logging_cfg.get("dir")
+    log_file = logging_cfg.get("filename")
+    if log_dir and log_file:
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(Path(log_dir) / log_file, mode="a", encoding="utf-8"))
+    handlers.append(logging.StreamHandler())
+
+    logging.basicConfig(level=level, format=fmt, handlers=handlers)
+
+
+def _next_preprocessed_id(preprocessed_dir: Path) -> int:
+    existing = sorted(preprocessed_dir.glob("preprocessed_*.csv"))
+    ids = []
+    for path in existing:
+        stem = path.stem.replace("preprocessed_", "")
+        if stem.isdigit():
+            ids.append(int(stem))
+    return max(ids, default=0) + 1
+
+
+def _append_registry(
+    registry_path: Path,
+    preprocessed_path: Path,
+    cfg: dict,
+    n_flights: int,
+    n_rows: int,
+) -> None:
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    preprocessing_cfg = cfg.get("preprocessing", {}) or {}
+    smoothing_cfg = preprocessing_cfg.get("smoothing", {}) or {}
+    resampling_cfg = preprocessing_cfg.get("resampling", {}) or {}
+    interp_method = resampling_cfg.get("method", "time")
+    n_points = resampling_cfg.get("n_points")
+    smoothing = (
+        smoothing_cfg.get("method", "none") if smoothing_cfg.get("enabled", False) else "none"
+    )
+    include_altitude = bool(cfg.get("features", {}).get("include_altitude", False))
+    flow_keys = (cfg.get("flows", {}) or {}).get("flow_keys", [])
+
+    header = (
+        "| id | file | n_flights | n_rows | n_points | interpolation | smoothing | include_altitude | flow_keys |"
+    )
+    sep = "|---|---|---:|---:|---:|---|---|---|---|"
+    line = (
+        f"| {preprocessed_path.stem.replace('preprocessed_', '')} | {preprocessed_path} | "
+        f"{n_flights} | {n_rows} | {n_points} | {interp_method} | {smoothing} | "
+        f"{'yes' if include_altitude else 'no'} | {flow_keys} |"
+    )
+
+    if not registry_path.exists():
+        registry_path.write_text(header + "\n" + sep + "\n" + line + "\n", encoding="utf-8")
+        return
+
+    with registry_path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
 def main(config_path: str) -> None:
     cfg = load_config(config_path)
+    configure_logging(cfg)
 
     input_cfg = cfg.get("input", {}) or {}
     csv_glob = input_cfg.get("csv_glob", "Enhanced/matched_*.csv")
@@ -43,10 +111,12 @@ def main(config_path: str) -> None:
     serial_start = int(preprocessing_cfg.get("serial_start", 1))
 
     output_cfg = cfg.get("output", {}) or {}
-    exp_name = str(output_cfg.get("experiment_name", "preprocessed"))
-    output_dir = Path(output_cfg.get("dir", "output")) / "run" / "csv"
+    output_dir = Path(output_cfg.get("dir", "data")) / "preprocessed"
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"preprocessed_{exp_name}.csv"
+    preprocessed_id = output_cfg.get("preprocessed_id")
+    if preprocessed_id is None:
+        preprocessed_id = _next_preprocessed_id(output_dir)
+    out_path = output_dir / f"preprocessed_{int(preprocessed_id)}.csv"
 
     df = load_monthly_csvs(csv_glob=csv_glob, parse_dates=parse_dates, max_rows_total=max_rows)
     df = ensure_required_columns(df)
@@ -77,6 +147,11 @@ def main(config_path: str) -> None:
         preprocessed[serial_column] = preprocessed["flight_id"].map(mapping).astype(int)
 
     save_dataframe(preprocessed, out_path)
+
+    n_flights = int(preprocessed["flight_id"].nunique()) if "flight_id" in preprocessed.columns else 0
+    n_rows = int(len(preprocessed))
+    registry_path = Path("thesis") / "docs" / "preprocessed_registry.md"
+    _append_registry(registry_path, out_path, cfg, n_flights, n_rows)
     print(f"Saved preprocessed data to {out_path}")
 
 

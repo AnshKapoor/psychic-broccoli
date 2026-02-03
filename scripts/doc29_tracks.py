@@ -169,11 +169,11 @@ def main() -> None:
     parser.add_argument("--ad", help="A/D value to filter (e.g., Start or Landung).")
     parser.add_argument("--runway", help="Runway to filter (e.g., 09R).")
     parser.add_argument("--all-flows", action="store_true", help="Generate tracks for every A/D + Runway combination.")
-    parser.add_argument("--out", default="output/figures/doc29_tracks.png", help="Output PNG path.")
+    parser.add_argument("--out", default="output/eda/doc29_tracks.png", help="Output PNG path.")
     parser.add_argument("--sample-trajs", type=int, default=300, help="Number of trajectories to sample for background plot.")
     parser.add_argument("--export-dir", default=None, help="Optional directory to write groundtrack_*.csv outputs.")
     parser.add_argument("--no-plot", action="store_true", help="Skip plotting; export only.")
-    parser.add_argument("--labels", default=None, help="Optional labels parquet or experiment folder with labels_*.parquet.")
+    parser.add_argument("--labels", default=None, help="Optional labels csv or experiment folder with labels_*.csv.")
     parser.add_argument("--cluster-id", type=int, default=None, help="Use a specific cluster id (requires --labels).")
     parser.add_argument(
         "--cluster-strategy",
@@ -194,15 +194,13 @@ def main() -> None:
         labels_path = Path(args.labels)
         if labels_path.is_dir():
             parts = []
-            for p in sorted(labels_path.glob("labels_*.parquet")):
-                parts.append(pd.read_parquet(p))
+            for p in sorted(labels_path.glob("labels_*.csv")):
+                parts.append(pd.read_csv(p))
             labels_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
-        elif labels_path.suffix == ".parquet":
-            labels_df = pd.read_parquet(labels_path)
         elif labels_path.suffix == ".csv":
             labels_df = pd.read_csv(labels_path)
         else:
-            raise ValueError("labels path must be a directory, .parquet, or .csv file.")
+            raise ValueError("labels path must be a directory or .csv file.")
 
         if labels_df.empty:
             raise ValueError("No labels loaded; check --labels path.")

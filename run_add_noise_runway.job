@@ -54,9 +54,9 @@ mkdir -p logs/python
 # Add/modify CSVs here; output files will be written alongside inputs with the
 # suffix `_with_ad_runway.csv` unless you set a different --output-dir.
 CSV_LIST=(
-  output/csv/matched_trajs_december_2022.csv
-  # output/csv/matched_trajs_january_2023.csv
-  # output/csv/matched_trajs_february_2023.csv
+  data/merged/matched_trajs_december_2022.csv
+  # data/merged/matched_trajs_january_2023.csv
+  # data/merged/matched_trajs_february_2023.csv
 )
 
 srun /home/y0113724/venvs/psychic/bin/python add_noise_runway_columns.py \

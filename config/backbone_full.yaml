@@ -2,7 +2,7 @@ input:
   csv_glob: "matched_trajectories/matched_trajs_*.csv"
   parse_dates: ["timestamp", "firstseen", "lastseen"]
   timezone: "UTC"
-  preprocessed_csv: "output/run/csv/preprocessed_OPTICS_exp_5.csv"
+  preprocessed_csv: "data/preprocessed/preprocessed_1.csv"
 
 coordinates:
   use_utm: true
@@ -14,8 +14,8 @@ segmentation:
   min_points_per_flight: 15
 
 flows:
-  # Empty flow_keys => global clustering (no per-runway splitting).
-  flow_keys: []
+  # Use flow-based clustering by default.
+  flow_keys: ["A/D", "Runway"]
   include: []
 
 preprocessing:
@@ -63,13 +63,13 @@ testing:
 
 output:
   dir: "output"
-  experiment_name: "GLOBAL_OPTICS_exp_1_np50_25km_serial"
+  experiment_name: "EXP001"
   save_preprocessed: true
   save_flight_metadata: true
   save_backbones: true
   save_plots: false
 
 logging:
-  dir: "logs"
-  filename: "backbone_GLOBAL_1.log"
+  dir: "logs/experiments"
+  filename: "backbone_EXP001.log"
   level: "INFO"

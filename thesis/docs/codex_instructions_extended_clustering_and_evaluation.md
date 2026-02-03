@@ -160,7 +160,7 @@ Responsibilities:
 output/<experiment_name>/
 ├── metrics_by_flow.csv
 ├── metrics_global.csv
-├── labels_<flow>.parquet
+├── labels_<flow>.csv
 ├── config_resolved.yaml
 └── runtime_log.txt
 ```
@@ -235,4 +235,3 @@ Add `pytest` tests for:
 - Metrics computed and saved per flow and globally
 - Pipeline runs end‑to‑end in testing mode
 - Results reproducible and logged for thesis experiments
-

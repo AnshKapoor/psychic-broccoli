@@ -173,6 +173,142 @@ def pairwise_distance_matrix(
     return mat
 
 
+def dtw_banded(
+    traj1: Trajectory,
+    traj2: Trajectory,
+    w: int,
+    tau: float | None = None,
+) -> float:
+    """Compute banded DTW with optional early abandoning."""
+
+    traj1, traj2 = _validate_trajectories(traj1, traj2)
+    n, m = traj1.shape[0], traj2.shape[0]
+    if w < 0:
+        raise ValueError("w must be non-negative.")
+    if n == 0 or m == 0:
+        return float("inf")
+
+    if w < abs(n - m):
+        w = abs(n - m)
+
+    tau_sq = tau * tau if tau is not None else None
+    prev = np.full(m + 1, np.inf, dtype=float)
+    curr = np.full(m + 1, np.inf, dtype=float)
+    prev[0] = 0.0
+
+    for i in range(1, n + 1):
+        curr.fill(np.inf)
+        j_start = max(1, i - w)
+        j_end = min(m, i + w)
+        for j in range(j_start, j_end + 1):
+            cost = float(np.sum((traj1[i - 1] - traj2[j - 1]) ** 2))
+            curr[j] = cost + min(prev[j], curr[j - 1], prev[j - 1])
+        if tau_sq is not None:
+            row_min = float(np.min(curr[j_start : j_end + 1]))
+            if row_min > tau_sq:
+                return float("inf")
+        prev, curr = curr, prev
+
+    final = prev[m]
+    return float(np.sqrt(final))
+
+
+def frechet_discrete(
+    traj1: Trajectory,
+    traj2: Trajectory,
+    tau: float | None = None,
+) -> float:
+    """Compute discrete FrÃ©chet distance with rolling DP and early abandoning."""
+
+    traj1, traj2 = _validate_trajectories(traj1, traj2)
+    n, m = traj1.shape[0], traj2.shape[0]
+    if n == 0 or m == 0:
+        return float("inf")
+
+    tau_sq = tau * tau if tau is not None else None
+
+    def dist_sq(i: int, j: int) -> float:
+        diff = traj1[i] - traj2[j]
+        return float(np.dot(diff, diff))
+
+    prev = np.full(m, np.inf, dtype=float)
+    curr = np.full(m, np.inf, dtype=float)
+
+    prev[0] = dist_sq(0, 0)
+    for j in range(1, m):
+        prev[j] = max(prev[j - 1], dist_sq(0, j))
+
+    for i in range(1, n):
+        curr[0] = max(prev[0], dist_sq(i, 0))
+        for j in range(1, m):
+            curr[j] = max(min(prev[j], prev[j - 1], curr[j - 1]), dist_sq(i, j))
+        if tau_sq is not None and float(np.min(curr)) > tau_sq:
+            return float("inf")
+        prev, curr = curr, prev
+
+    return float(np.sqrt(prev[m - 1]))
+
+
+def lb_keogh(traj1: Trajectory, traj2: Trajectory, radius: int) -> float:
+    """Compute LB_Keogh lower bound (squared) for multi-dimensional trajectories."""
+
+    traj1, traj2 = _validate_trajectories(traj1, traj2)
+    n = traj1.shape[0]
+    if radius < 0:
+        raise ValueError("radius must be non-negative.")
+
+    lb_sum = 0.0
+    for i in range(n):
+        start = max(0, i - radius)
+        end = min(n, i + radius + 1)
+        window = traj2[start:end]
+        upper = np.max(window, axis=0)
+        lower = np.min(window, axis=0)
+        diff = np.where(traj1[i] > upper, traj1[i] - upper, 0.0)
+        diff = np.where(traj1[i] < lower, lower - traj1[i], diff)
+        lb_sum += float(np.sum(diff ** 2))
+    return lb_sum
+
+
+def rdp(points: np.ndarray, epsilon: float) -> np.ndarray:
+    """Ramer-Douglas-Peucker simplification for 2D/3D polylines."""
+
+    if points.shape[0] <= 2 or epsilon <= 0:
+        return points
+
+    def _perp_dist(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
+        if np.allclose(a, b):
+            return float(np.linalg.norm(p - a))
+        ab = b - a
+        t = float(np.dot(p - a, ab) / np.dot(ab, ab))
+        t = max(0.0, min(1.0, t))
+        proj = a + t * ab
+        return float(np.linalg.norm(p - proj))
+
+    stack = [(0, points.shape[0] - 1)]
+    keep = np.zeros(points.shape[0], dtype=bool)
+    keep[0] = True
+    keep[-1] = True
+
+    while stack:
+        start, end = stack.pop()
+        max_dist = 0.0
+        idx = None
+        a = points[start]
+        b = points[end]
+        for i in range(start + 1, end):
+            dist = _perp_dist(points[i], a, b)
+            if dist > max_dist:
+                max_dist = dist
+                idx = i
+        if idx is not None and max_dist > epsilon:
+            keep[idx] = True
+            stack.append((start, idx))
+            stack.append((idx, end))
+
+    return points[keep]
+
+
 if __name__ == "__main__":
     traj1 = np.array([[0, 0], [1, 1], [2, 2]], dtype=float)
     traj2 = np.array([[0, 0], [1, 2], [2, 4]], dtype=float)

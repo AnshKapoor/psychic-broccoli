@@ -1,213 +1,8 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-      
         {
-            "name": "Python Debugger: Current File with Arguments",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-            "args": [
-                "noise_data.xlsx",
-                "adsb/data_2022_april.joblib",
-                "--noise-output",
-                "noise_with_matches.csv",
-                "--traj-output",
-                "matched_trajs.parquet",
-                "--tol-sec",
-                "10",
-                "--buffer-frac",
-                "0.5",
-                "--window-min",
-                "3",
-                "--test-mode",
-                "true",
-                "--test-mode-match-limit",
-                "5"
-            ]
-        },
-        {
-            "name": "Backbone Clustering (Test Mode)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/cli.py",
-            "args": [
-                "-c",
-                "config/backbone.yaml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Backbone Clustering (Full Mode)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/cli.py",
-            "args": [
-                "-c",
-                "config/backbone_full.yaml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Visualize Outputs",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/visualize_outputs.py",
-            "args": [
-                "--experiment-prefix",
-                "OPTICS_exp_4"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - OPTICS",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/backbone_full.yaml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - GLOBAL OPTICS",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/experiments/global_optics.yaml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - GLOBAL DBSCAN",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/experiments/global_dbscan.yaml",
-                "--preprocessed",
-                "output/run/csv/preprocessed_OPTICS_exp_5.csv"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - GLOBAL HDBSCAN",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/experiments/global_hdbscan.yaml",
-                "--preprocessed",
-                "output/run/csv/preprocessed_OPTICS_exp_5.csv"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - GLOBAL KMeans",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/experiments/global_kmeans.yaml",
-                "--preprocessed",
-                "output/run/csv/preprocessed_OPTICS_exp_5.csv"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - GLOBAL Agglomerative",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/experiments/global_agglomerative.yaml",
-                "--preprocessed",
-                "output/run/csv/preprocessed_OPTICS_exp_5.csv"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - DBSCAN",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/backbone_full.yaml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - HDBSCAN",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/backbone_full.yaml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - KMeans",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/backbone_full.yaml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Experiment Runner - Agglomerative",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/runner.py",
-            "args": [
-                "-c",
-                "config/backbone_full.yaml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Run Named Experiments Grid",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/run_experiment_grid.py",
-            "args": [
-                "--grid",
-                "experiments/named_experiments.yaml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Save Preprocessed Data",
+            "name": "Save Preprocessed",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/save_preprocessed.py",
@@ -219,19 +14,25 @@
             "cwd": "${workspaceFolder}"
         },
         {
-            "name": "Convert ADSB Joblib to Parquet (April)",
+            "name": "Run Preprocess Grid",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/convert_adsb_joblib_to_csv.py",
+            "program": "${workspaceFolder}/scripts/run_preprocess_grid.py",
             "args": [
-                "--joblib",
-                "adsb/data_2022_april.joblib",
-                "--output-dir",
-                "output/adsb_parquet",
-                "--chunksize",
-                "200000",
-                "--compression",
-                "snappy"
+                "--grid",
+                "config/preprocess_grid.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Run Experiment Grid",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/run_experiment_grid.py",
+            "args": [
+                "--grid",
+                "experiments/experiment_grid.yaml"
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
@@ -242,36 +43,110 @@
             "request": "launch",
             "program": "${workspaceFolder}/scripts/plot_experiment_results.py",
             "args": [
-                "GLOBAL_AGGLO_exp_1",
-                "--max-flights-per-cluster",
-                "30"
+                "${input:experimentName}"
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
         },
         {
-            "name": "Generate Backbone Tracks",
+            "name": "Plot Backbone Tracks (Lat/Lon)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/plot_experiment_results.py",
+            "program": "${workspaceFolder}/scripts/plot_backbone_tracks.py",
             "args": [
-                "EXP46_optics_euclid_ms8_xi03_mcs06"
+                "--experiment",
+                "${input:experimentName}",
+                "--arrival-scheme",
+                "median"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Plot Clustered Flows (Lat/Lon)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/plot_exp_latlon_flows.py",
+            "args": [
+                "${input:experimentName}",
+                "--flows",
+                "Start_09L",
+                "Start_09R",
+                "Start_27L",
+                "Start_27R",
+                "--max-flights-per-cluster",
+                "200"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Doc29 Automation (Experiment)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/noise_simulation/run_doc29_experiment.py",
+            "args": [
+                "--experiment",
+                "${input:doc29Experiment}",
+                "--aircraft-types",
+                "E170",
+                "B738",
+                "B38M",
+                "A319",
+                "A320",
+                "A20N",
+                "A321",
+                "E190",
+                "E75L",
+                "E195",
+                "--skip-existing"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Doc29 Ground Truth (Batched)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/noise_simulation/run_doc29_ground_truth.py",
+            "args": [
+                "--preprocessed",
+                "${input:preprocessedCsv}",
+                "--matched-dir",
+                "matched_trajectories",
+                "--output-root",
+                "${input:groundTruthOut}",
+                "--batch-size",
+                "1000"
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
         }
     ],
-    "compounds": [
+    "inputs": [
         {
-            "name": "Global Experiments (All Methods)",
-            "configurations": [
-                "Experiment Runner - GLOBAL OPTICS",
-                "Experiment Runner - GLOBAL DBSCAN",
-                "Experiment Runner - GLOBAL HDBSCAN",
-                "Experiment Runner - GLOBAL KMeans",
-                "Experiment Runner - GLOBAL Agglomerative"
-            ],
-            "stopAll": true
+            "id": "experimentName",
+            "type": "promptString",
+            "description": "Experiment name (e.g., EXP77)",
+            "default": "EXP77"
+        },
+        {
+            "id": "doc29Experiment",
+            "type": "promptString",
+            "description": "Doc29 experiment folder name (e.g., EXP77)",
+            "default": "EXP77"
+        },
+        {
+            "id": "preprocessedCsv",
+            "type": "promptString",
+            "description": "Preprocessed CSV path",
+            "default": "data/preprocessed/preprocessed_1.csv"
+        },
+        {
+            "id": "groundTruthOut",
+            "type": "promptString",
+            "description": "Ground truth output folder",
+            "default": "noise_simulation/results_ground_truth/preprocessed_1"
         }
     ]
 }

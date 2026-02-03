@@ -26,6 +26,7 @@ def smooth_series(
     window_length: int,
     polyorder: int,
     method: str = "auto",
+    audit: Dict[str, int] | None = None,
 ) -> pd.Series:
     """Smooth a numeric series using the configured method.
 
@@ -39,36 +40,56 @@ def smooth_series(
 
     method_norm = str(method or "auto").strip().lower().replace("-", "_")
     if method_norm in {"none", "off", "disabled"}:
+        if audit is not None:
+            audit["none"] = audit.get("none", 0) + 1
         return values
 
     if method_norm in {"ewm", "ema", "exponential"}:
+        if audit is not None:
+            audit["ewm"] = audit.get("ewm", 0) + 1
         span = max(int(window_length), 2)
         return values.ewm(span=span, adjust=False).mean()
 
     if method_norm in {"moving_average", "rolling_mean", "mean"}:
         if window_length < 2:
+            if audit is not None:
+                audit["none"] = audit.get("none", 0) + 1
             return values
+        if audit is not None:
+            audit["moving_average"] = audit.get("moving_average", 0) + 1
         return values.rolling(window=int(window_length), center=True, min_periods=1).mean()
 
     if method_norm in {"median", "rolling_median"}:
         if window_length < 2:
+            if audit is not None:
+                audit["none"] = audit.get("none", 0) + 1
             return values
+        if audit is not None:
+            audit["median"] = audit.get("median", 0) + 1
         return values.rolling(window=int(window_length), center=True, min_periods=1).median()
 
     if method_norm not in {"auto", "savgol", "savitzky_golay", "savitzkygolay"}:
         raise ValueError(f"Unsupported smoothing method: {method}")
 
     if window_length < 3 or len(values) < window_length:
+        if audit is not None:
+            audit["none"] = audit.get("none", 0) + 1
         return values
     if window_length % 2 == 0:
         window_length -= 1
     if window_length < 3:
+        if audit is not None:
+            audit["none"] = audit.get("none", 0) + 1
         return values
 
     if savgol_filter:
+        if audit is not None:
+            audit["savgol"] = audit.get("savgol", 0) + 1
         poly = min(polyorder, window_length - 1)
         return pd.Series(savgol_filter(values, window_length=window_length, polyorder=poly), index=values.index)
 
+    if audit is not None:
+        audit["moving_average_fallback"] = audit.get("moving_average_fallback", 0) + 1
     return values.rolling(window=window_length, center=True, min_periods=1).mean()
 
 
@@ -124,6 +145,8 @@ def preprocess_flights(
     if max_airport_distance_m is not None:
         max_airport_distance_m = float(max_airport_distance_m)
 
+    logger = logging.getLogger(__name__)
+
     smooth_enabled = smoothing_cfg.get("enabled", True)
     smooth_method = str(smoothing_cfg.get("method", "auto"))
     window_length = int(smoothing_cfg.get("window_length", 7))
@@ -164,6 +187,7 @@ def preprocess_flights(
                         window_length,
                         polyorder,
                         method=smooth_method,
+                        audit=smooth_audit,
                     )
 
         try:
@@ -182,4 +206,21 @@ def preprocess_flights(
         return pd.DataFrame()
 
     result = pd.concat(outputs, ignore_index=True)
+    if smooth_enabled:
+        logger.info("Smoothing usage counts: %s", smooth_audit)
     return result
+    if smooth_enabled:
+        method_norm = smooth_method.strip().lower().replace("-", "_")
+        if method_norm in {"auto", "savgol", "savitzky_golay", "savitzkygolay"}:
+            if savgol_filter:
+                logger.info(
+                    "Smoothing: auto -> Savitzky-Golay (window=%d, polyorder=%d)",
+                    window_length,
+                    polyorder,
+                )
+            else:
+                logger.info("Smoothing: auto -> moving_average fallback (window=%d)", window_length)
+        else:
+            logger.info("Smoothing: method=%s (window=%d, polyorder=%d)", method_norm, window_length, polyorder)
+
+    smooth_audit: Dict[str, int] = {}

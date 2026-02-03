@@ -4,8 +4,8 @@ and resampling each flight to a fixed number of points.
 
 Usage:
   python scripts/preprocess_dtw_frechet.py ^
-    --input output/run/csv/preprocessed_OPTICS_exp_5.csv ^
-    --output output/run/csv/preprocessed_OPTICS_exp_5_lenmed_top80_n40.csv ^
+    --input data/preprocessed/preprocessed_1.csv ^
+    --output data/preprocessed/preprocessed_2.csv ^
     --target-points 40 ^
     --keep-top-pct 0.8 ^
     --min-length-mode median

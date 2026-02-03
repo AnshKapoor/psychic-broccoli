@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import logging
 from typing import Any
 
 import joblib
@@ -42,6 +43,16 @@ def main() -> None:
     input_dir = Path(args.input_dir)
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+    logs_dir = Path("logs") / "eda"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(logs_dir / "eda_adsb_monthly.log", mode="a", encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
+    )
 
     if not input_dir.exists():
         raise FileNotFoundError(f"Input directory not found: {input_dir}")
@@ -54,6 +65,7 @@ def main() -> None:
         raise FileNotFoundError(f"No joblib files found in {input_dir}")
 
     for path in files:
+        logging.info("Processing %s", path.name)
         df = _load_adsb(path)
         row = {
             "file": path.name,

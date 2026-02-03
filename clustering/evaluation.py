@@ -6,6 +6,7 @@ from typing import Literal
 
 import numpy as np
 from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, silhouette_score
+from scipy.sparse import issparse
 
 
 def compute_internal_metrics(
@@ -16,9 +17,14 @@ def compute_internal_metrics(
 ) -> dict:
     labels = np.asarray(labels)
     if not include_noise:
-        mask = labels != -1
-        X_or_D = X_or_D[mask]
-        labels = labels[mask]
+        if metric_mode == "precomputed" and issparse(X_or_D):
+            idx = np.where(labels != -1)[0]
+            X_or_D = X_or_D[idx][:, idx]
+            labels = labels[idx]
+        else:
+            mask = labels != -1
+            X_or_D = X_or_D[mask]
+            labels = labels[mask]
 
     unique = [c for c in np.unique(labels) if c != -1]
     if len(unique) < 2:
@@ -37,6 +43,12 @@ def compute_internal_metrics(
     }
 
     if metric_mode == "precomputed":
+        if issparse(X_or_D):
+            metrics["silhouette"] = float("nan")
+            metrics["davies_bouldin"] = float("nan")
+            metrics["calinski_harabasz"] = float("nan")
+            metrics["reason"] = "sparse_precomputed_distances"
+            return metrics
         metrics["silhouette"] = float(silhouette_score(X_or_D, labels, metric="precomputed"))
     else:
         metrics["silhouette"] = float(silhouette_score(X_or_D, labels))

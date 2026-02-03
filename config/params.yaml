@@ -1,4 +1,4 @@
-input_csv: output/csv/matched_trajectories.csv  # Path to match_noise_to_adsb CSV output
+input_csv: data/merged/matched_trajectories.csv  # Path to match_noise_to_adsb CSV output
 output_dir: reports/clustering                  # Where clustering artefacts are stored
 
 # Keys that uniquely identify a trajectory slice. Adjust if your dataset

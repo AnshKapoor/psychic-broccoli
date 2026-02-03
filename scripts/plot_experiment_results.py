@@ -3,13 +3,13 @@
 Usage:
   python scripts/plot_experiment_results.py OPTICS_exp_5
 
-This reads outputs from `output/<experiment_name>/`:
+This reads outputs from `output/experiments/<experiment_name>/`:
   - metrics_by_flow.csv / metrics_global.csv
-  - labels_*.parquet (one per flow)
+  - labels_*.csv (one per flow)
   - config_resolved.yaml (to locate preprocessed CSV)
 
 It writes plots to:
-  output/<experiment_name>/plots/
+  output/experiments/<experiment_name>/plots/
 """
 
 from __future__ import annotations
@@ -94,8 +94,8 @@ def _plot_metrics(exp_dir: Path, plots_dir: Path) -> None:
 
 def _load_labels(exp_dir: Path) -> pd.DataFrame:
     parts = []
-    for p in sorted(exp_dir.glob("labels_*.parquet")):
-        df = pd.read_parquet(p)
+    for p in sorted(exp_dir.glob("labels_*.csv")):
+        df = pd.read_csv(p)
         df["flow_file"] = p.stem.replace("labels_", "")
         parts.append(df)
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
@@ -209,9 +209,9 @@ def _plot_backbone_tracks(exp_dir: Path, plots_dir: Path, preprocessed_path: Pat
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Plot experiment results from output/<experiment>/")
-    parser.add_argument("experiment", help="Experiment folder name under output/ (e.g., OPTICS_exp_5)")
-    parser.add_argument("--output-root", default="output", help="Root output directory (default: output)")
+    parser = argparse.ArgumentParser(description="Plot experiment results from output/experiments/<experiment>/")
+    parser.add_argument("experiment", help="Experiment folder name under output/experiments/ (e.g., EXP77)")
+    parser.add_argument("--output-root", default="output/experiments", help="Root experiments directory (default: output/experiments)")
     parser.add_argument(
         "--preprocessed",
         default=None,

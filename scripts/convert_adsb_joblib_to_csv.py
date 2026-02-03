@@ -122,7 +122,7 @@ def main() -> None:
     parser.add_argument("--joblib", default=None, help="Single joblib file to convert.")
     parser.add_argument("--input-dir", default="adsb", help="Directory containing joblib files.")
     parser.add_argument("--glob", default="*.joblib", help="Glob pattern for joblib files.")
-    parser.add_argument("--output-dir", default="output/adsb_parquet", help="Directory for Parquet outputs.")
+    parser.add_argument("--output-dir", default="data/adsb_parquet", help="Directory for Parquet outputs.")
     parser.add_argument("--chunksize", type=int, default=200_000, help="Parquet row group size (rows).")
     parser.add_argument("--compression", default="snappy", help="Parquet compression codec.")
     parser.add_argument("--no-parse-timestamp", action="store_true", help="Disable UTC timestamp parsing.")

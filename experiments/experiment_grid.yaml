@@ -1,50 +1,121 @@
 experiments:
-  - name: "OPTICS_sweep"
+  # RQ1: Impact of n_points (keep method + params fixed, vary preprocessed)
+  - name: "EXP001"
+    experiment_name: "EXP001"
     method: "optics"
     distance_metric: "euclidean"
     optics:
-      min_samples: [8, 12, 16]
-      xi: [0.03, 0.04, 0.06]
-      min_cluster_size: [0.03, 0.04, 0.06]
-  - name: "DBSCAN_sweep"
-    method: "dbscan"
+      min_samples: 12
+      xi: 0.04
+      min_cluster_size: 0.04
+    input:
+      preprocessed_csv: "data/preprocessed/preprocessed_1.csv"
+
+  - name: "EXP002"
+    experiment_name: "EXP002"
+    method: "optics"
     distance_metric: "euclidean"
-    dbscan:
-      eps: [150, 250, 350, 500]
-      min_samples: [8, 12, 16]
-  - name: "HDBSCAN_sweep"
+    optics:
+      min_samples: 12
+      xi: 0.04
+      min_cluster_size: 0.04
+    input:
+      preprocessed_csv: "data/preprocessed/preprocessed_2.csv"
+
+  # RQ2: Distance metric impact (same n_points, vary metric)
+  - name: "EXP010"
+    experiment_name: "EXP010"
     method: "hdbscan"
     distance_metric: "euclidean"
     hdbscan:
-      min_cluster_size: [8, 12, 20, 40]
-      min_samples: [null, 8, 12]
-  - name: "KMeans_baseline"
-    method: "kmeans"
+      min_cluster_size: 20
+      min_samples: 10
+    input:
+      preprocessed_csv: "data/preprocessed/preprocessed_1.csv"
+
+  - name: "EXP011"
+    experiment_name: "EXP011"
+    method: "hdbscan"
+    distance_metric: "dtw"
+    distance_params:
+      band_ratio: 0.08
+      lb_keogh: true
+    hdbscan:
+      min_cluster_size: 20
+      min_samples: 10
+    input:
+      preprocessed_csv: "data/preprocessed/preprocessed_1.csv"
+
+  - name: "EXP012"
+    experiment_name: "EXP012"
+    method: "hdbscan"
+    distance_metric: "frechet"
+    distance_params:
+      band_ratio: 0.08
+      lb_keogh: true
+    hdbscan:
+      min_cluster_size: 20
+      min_samples: 10
+    input:
+      preprocessed_csv: "data/preprocessed/preprocessed_1.csv"
+
+  # RQ3: Trajectory distance fit (OPTICS parameter sweep, single axis at a time)
+  - name: "EXP020"
+    experiment_name: "EXP020"
+    method: "optics"
     distance_metric: "euclidean"
-    kmeans:
-      n_clusters: [3, 4, 5, 6, 7, 8, 9, 10]
-  - name: "Agglomerative_baseline"
-    method: "agglomerative"
+    optics:
+      min_samples: 8
+      xi: 0.04
+      min_cluster_size: 0.04
+    input:
+      preprocessed_csv: "data/preprocessed/preprocessed_1.csv"
+
+  - name: "EXP021"
+    experiment_name: "EXP021"
+    method: "optics"
     distance_metric: "euclidean"
-    agglomerative:
-      linkage: ["ward", "average", "complete"]
-      n_clusters: [3, 4, 5, 6, 7, 8, 9, 10]
+    optics:
+      min_samples: 12
+      xi: 0.04
+      min_cluster_size: 0.04
+    input:
+      preprocessed_csv: "data/preprocessed/preprocessed_1.csv"
+
+  - name: "EXP022"
+    experiment_name: "EXP022"
+    method: "optics"
+    distance_metric: "euclidean"
+    optics:
+      min_samples: 16
+      xi: 0.04
+      min_cluster_size: 0.04
+    input:
+      preprocessed_csv: "data/preprocessed/preprocessed_1.csv"
+
+  # RQ7: Include altitude in clustering (3D UTM+alt)
+  - name: "EXP030"
+    experiment_name: "EXP030"
+    method: "optics"
+    distance_metric: "euclidean"
+    optics:
+      min_samples: 12
+      xi: 0.04
+      min_cluster_size: 0.04
+    features:
+      vector_cols: ["x_utm", "y_utm", "altitude"]
+    input:
+      preprocessed_csv: "data/preprocessed/preprocessed_3.csv"
 
 flows:
-  flow_keys: []
-  include:
-    - ["27R"]
-    - ["27L"]
-    - ["09R"]
-    - ["09L"]
-    - ["HEL"]
+  flow_keys: ["A/D", "Runway"]
+  include: []
 
 input:
-  preprocessed_csv: "output/run/csv/preprocessed_OPTICS_exp_full.csv"
+  preprocessed_csv: "data/preprocessed/preprocessed_1.csv"
 
 output:
   dir: "output"
-  base_experiment_name: "Paper_sweeps"
 
 features:
-  vector_cols: ["latitude", "longitude"]
+  vector_cols: ["x_utm", "y_utm"]

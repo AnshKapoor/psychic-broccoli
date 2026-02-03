@@ -23,22 +23,23 @@ def _load_config(exp_dir: Path) -> dict:
     return yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
 
 
-def _read_parquet_cols(path: Path, cols: list[str]) -> pd.DataFrame:
-    try:
-        return pd.read_parquet(path, columns=cols)
-    except Exception:
-        return pd.read_parquet(path)
+def _read_label_csv(path: Path, cols: list[str]) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        return df
+    return df[cols]
 
 
 def _load_labels(exp_dir: Path) -> pd.DataFrame:
     parts: list[pd.DataFrame] = []
     cols = ["flight_id", "cluster_id", "A/D", "Runway", "icao24"]
-    for p in sorted(exp_dir.glob("labels_*.parquet")):
-        parts.append(_read_parquet_cols(p, cols))
+    for p in sorted(exp_dir.glob("labels_*.csv")):
+        parts.append(_read_label_csv(p, cols))
     if not parts:
-        labels_all = exp_dir / "labels_ALL.parquet"
+        labels_all = exp_dir / "labels_ALL.csv"
         if labels_all.exists():
-            parts.append(_read_parquet_cols(labels_all, cols))
+            parts.append(_read_label_csv(labels_all, cols))
     if not parts:
         return pd.DataFrame()
     labels = pd.concat(parts, ignore_index=True)
@@ -307,8 +308,8 @@ def _plot_points(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot clustered trajectories in latitude/longitude.")
-    parser.add_argument("experiment", help="Experiment folder name under output/")
-    parser.add_argument("--output-root", default="output", help="Root output directory")
+    parser.add_argument("experiment", help="Experiment folder name under output/experiments/")
+    parser.add_argument("--output-root", default="output/experiments", help="Root experiments directory")
     parser.add_argument("--preprocessed", default=None, help="Override preprocessed CSV path")
     parser.add_argument("--enhanced-glob", default="Enhanced/matched_trajs_*.csv")
     parser.add_argument("--aircraft-type-top-n", type=int, default=10)
@@ -324,7 +325,7 @@ def main() -> None:
 
     labels = _load_labels(exp_dir)
     if labels.empty:
-        raise FileNotFoundError("No labels_*.parquet or labels_ALL.parquet found.")
+        raise FileNotFoundError("No labels_*.csv or labels_ALL.csv found.")
 
     cfg = _load_config(exp_dir)
     preprocessed_path = args.preprocessed or (cfg.get("input", {}) or {}).get("preprocessed_csv")

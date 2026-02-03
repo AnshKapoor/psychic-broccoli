@@ -50,17 +50,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Plot Doc29 experiment metrics.")
     parser.add_argument(
         "--stage2",
-        default="output/metrics_stage2_exp32_37_by_flow.csv",
+        default="output/eda/metrics_stage2_by_flow.csv",
         help="Path to metrics_stage2_exp32_37_by_flow.csv",
     )
     parser.add_argument(
         "--quality",
-        default="output/metrics_quality_exp01_31.csv",
+        default="output/eda/metrics_quality_global.csv",
         help="Path to metrics_quality_exp01_31.csv",
     )
     parser.add_argument(
         "--out-dir",
-        default="output/figures",
+        default="output/eda/figures",
         help="Directory to write plots.",
     )
     args = parser.parse_args()
