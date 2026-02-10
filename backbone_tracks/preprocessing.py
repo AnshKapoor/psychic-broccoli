@@ -144,6 +144,12 @@ def preprocess_flights(
         max_airport_distance_m = float(filter_cfg["max_airport_distance_km"]) * 1000.0
     if max_airport_distance_m is not None:
         max_airport_distance_m = float(max_airport_distance_m)
+    min_length_m = None
+    if filter_cfg.get("min_length_km") is not None:
+        min_length_m = float(filter_cfg["min_length_km"]) * 1000.0
+    allowed_runways = filter_cfg.get("allowed_runways")
+    if allowed_runways:
+        allowed_runways = {str(r).strip() for r in allowed_runways}
 
     logger = logging.getLogger(__name__)
 
@@ -155,6 +161,11 @@ def preprocess_flights(
     if use_utm:
         smooth_cols = list({*smooth_cols, "x_utm", "y_utm"})
 
+    simplify_cfg = filter_cfg.get("simplify", {}) or {}
+    rdp_enabled = bool(simplify_cfg.get("rdp_enabled", False))
+    rdp_epsilon_m = float(simplify_cfg.get("rdp_epsilon_m", 0.0))
+    rdp_min_points = int(simplify_cfg.get("rdp_min_points", 10))
+
     n_points = int(resampling_cfg.get("n_points", 40))
     method = str(resampling_cfg.get("method", "time")).lower()
     resample_cols = ["altitude", "dist_to_airport_m"]
@@ -164,12 +175,18 @@ def preprocess_flights(
         resample_cols = ["latitude", "longitude", *resample_cols]
 
     outputs: List[pd.DataFrame] = []
+    smooth_audit: Dict[str, int] = {}
+    rdp_applied = 0
     group_cols = [*flow_keys, "flight_id"]
     for group_values, flight in df.groupby(group_cols):
         flight_id = group_values[-1] if isinstance(group_values, tuple) else group_values
         flight_sorted = flight.sort_values("timestamp")
         if len(flight_sorted) < 2:
             continue
+        if allowed_runways and "Runway" in flight_sorted.columns:
+            runway = str(flight_sorted["Runway"].iloc[0]).strip()
+            if runway not in allowed_runways:
+                continue
 
         if max_airport_distance_m is not None and "dist_to_airport_m" in flight_sorted.columns:
             flight_sorted = flight_sorted[
@@ -178,6 +195,30 @@ def preprocess_flights(
             ].copy()
             if len(flight_sorted) < 2:
                 continue
+        if min_length_m is not None and use_utm and {"x_utm", "y_utm"}.issubset(flight_sorted.columns):
+            dx = flight_sorted["x_utm"].diff()
+            dy = flight_sorted["y_utm"].diff()
+            length = float(np.sqrt(dx * dx + dy * dy).sum(skipna=True))
+            if length < min_length_m:
+                continue
+
+        if rdp_enabled and use_utm and {"x_utm", "y_utm"}.issubset(flight_sorted.columns):
+            if len(flight_sorted) >= rdp_min_points and rdp_epsilon_m > 0:
+                try:
+                    from distance_metrics import rdp  # local helper
+
+                    coords = flight_sorted[["x_utm", "y_utm"]].to_numpy(dtype=float)
+                    simplified = rdp(coords, rdp_epsilon_m)
+                    # Keep only rows that match simplified coordinates.
+                    key = {(float(x), float(y)) for x, y in simplified}
+                    mask = flight_sorted[["x_utm", "y_utm"]].apply(
+                        lambda row: (float(row["x_utm"]), float(row["y_utm"])) in key, axis=1
+                    )
+                    if mask.any():
+                        flight_sorted = flight_sorted[mask].copy()
+                        rdp_applied += 1
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("RDP simplification failed for flight %s: %s", flight_id, exc)
 
         if smooth_enabled:
             for col in smooth_cols:
@@ -208,19 +249,6 @@ def preprocess_flights(
     result = pd.concat(outputs, ignore_index=True)
     if smooth_enabled:
         logger.info("Smoothing usage counts: %s", smooth_audit)
+    if rdp_enabled:
+        logger.info("RDP simplification applied to %d flights (epsilon=%.2f m)", rdp_applied, rdp_epsilon_m)
     return result
-    if smooth_enabled:
-        method_norm = smooth_method.strip().lower().replace("-", "_")
-        if method_norm in {"auto", "savgol", "savitzky_golay", "savitzkygolay"}:
-            if savgol_filter:
-                logger.info(
-                    "Smoothing: auto -> Savitzky-Golay (window=%d, polyorder=%d)",
-                    window_length,
-                    polyorder,
-                )
-            else:
-                logger.info("Smoothing: auto -> moving_average fallback (window=%d)", window_length)
-        else:
-            logger.info("Smoothing: method=%s (window=%d, polyorder=%d)", method_norm, window_length, polyorder)
-
-    smooth_audit: Dict[str, int] = {}

@@ -17,7 +17,7 @@ from backbone_tracks.preprocessing import preprocess_flights
 from backbone_tracks.segmentation import segment_flights
 
 
-def configure_logging(cfg: dict) -> None:
+def configure_logging(cfg: dict, log_name_override: str | None = None) -> None:
     """Configure logging based on config settings."""
 
     logging_cfg = cfg.get("logging", {}) or {}
@@ -27,7 +27,7 @@ def configure_logging(cfg: dict) -> None:
 
     handlers = []
     log_dir = logging_cfg.get("dir")
-    log_file = logging_cfg.get("filename")
+    log_file = log_name_override or logging_cfg.get("filename")
     if log_dir and log_file:
         Path(log_dir).mkdir(parents=True, exist_ok=True)
         handlers.append(logging.FileHandler(Path(log_dir) / log_file, mode="a", encoding="utf-8"))
@@ -85,7 +85,7 @@ def _append_registry(
 
 def main(config_path: str) -> None:
     cfg = load_config(config_path)
-    configure_logging(cfg)
+    configure_logging(cfg, log_name_override="preprocess.log")
 
     input_cfg = cfg.get("input", {}) or {}
     csv_glob = input_cfg.get("csv_glob", "Enhanced/matched_*.csv")
@@ -128,6 +128,7 @@ def main(config_path: str) -> None:
         time_gap_sec=float(seg_cfg.get("time_gap_sec", 60)),
         distance_jump_m=float(seg_cfg.get("distance_jump_m", 600)),
         min_points_per_flight=int(seg_cfg.get("min_points_per_flight", 10)),
+        split_on_identity=bool(seg_cfg.get("split_on_identity", True)),
     )
 
     preprocessed = preprocess_flights(
@@ -138,6 +139,11 @@ def main(config_path: str) -> None:
         use_utm=use_utm,
         flow_keys=flow_keys,
     )
+
+    if "flight_id" in preprocessed.columns:
+        unique_ids = sorted(preprocessed["flight_id"].dropna().unique())
+        mapping = {fid: idx + 1 for idx, fid in enumerate(unique_ids)}
+        preprocessed["flight_id"] = preprocessed["flight_id"].map(mapping).astype(int)
 
     if serial_column:
         if "flight_id" not in preprocessed.columns:

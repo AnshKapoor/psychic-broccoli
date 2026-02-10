@@ -20,6 +20,7 @@ Outputs:
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
@@ -28,6 +29,10 @@ import numpy as np
 import pandas as pd
 import yaml
 from pyproj import Transformer
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from backbone_tracks.backbone import compute_backbones
 
@@ -125,7 +130,7 @@ def _plot_doc29_arrival(
     transformer: Transformer,
 ) -> None:
     tracks = _doc29_tracks_utm(df_flow)
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(7.5, 7.5))
     colors = {
         "center": "#000000",
         "inner_left": "#4E79A7",
@@ -135,12 +140,47 @@ def _plot_doc29_arrival(
         "outer_left": "#59A14F",
         "outer_right": "#59A14F",
     }
+
+    # Fill bands between tracks for visual separation.
+    band_pairs = [
+        ("outer_left", "middle_left", "#59A14F"),
+        ("middle_left", "inner_left", "#F28E2B"),
+        ("inner_left", "center", "#4E79A7"),
+        ("center", "inner_right", "#4E79A7"),
+        ("inner_right", "middle_right", "#F28E2B"),
+        ("middle_right", "outer_right", "#59A14F"),
+    ]
+    for left_name, right_name, fill_color in band_pairs:
+        if left_name not in tracks or right_name not in tracks:
+            continue
+        left = tracks[left_name]
+        right = tracks[right_name]
+        lon_l, lat_l = transformer.transform(left[:, 0], left[:, 1])
+        lon_r, lat_r = transformer.transform(right[:, 0], right[:, 1])
+        poly_lon = list(lon_l) + list(lon_r[::-1])
+        poly_lat = list(lat_l) + list(lat_r[::-1])
+        ax.fill(poly_lon, poly_lat, color=fill_color, alpha=0.08, linewidth=0)
+
     for name, coords in tracks.items():
         lon, lat = transformer.transform(coords[:, 0], coords[:, 1])
         ax.plot(lon, lat, color=colors.get(name, "#333333"), lw=1.4, label=name)
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     ax.set_aspect("equal", adjustable="box")
+    # Widen the view by adding padding around the extents.
+    all_lon = []
+    all_lat = []
+    for coords in tracks.values():
+        lon, lat = transformer.transform(coords[:, 0], coords[:, 1])
+        all_lon.extend(lon)
+        all_lat.extend(lat)
+    if all_lon and all_lat:
+        min_lon, max_lon = min(all_lon), max(all_lon)
+        min_lat, max_lat = min(all_lat), max(all_lat)
+        pad_lon = (max_lon - min_lon) * 0.08
+        pad_lat = (max_lat - min_lat) * 0.08
+        ax.set_xlim(min_lon - pad_lon, max_lon + pad_lon)
+        ax.set_ylim(min_lat - pad_lat, max_lat + pad_lat)
     ax.grid(True, color="#ececec", lw=0.8)
     ax.legend(loc="best", fontsize=8)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,10 +249,10 @@ def main() -> None:
         out_path = plots_dir / flow_name / f"cluster_{cluster_id}_backbone.png"
         _plot_backbone_cluster(subset, out_path, color)
 
-        if ad == "Landung" and args.arrival_scheme == "seven":
+        if args.arrival_scheme == "seven":
             df_flow = pre[(pre["A/D"] == ad) & (pre["Runway"] == runway) & (pre["cluster_id"] == cluster_id)]
             if not df_flow.empty:
-                out_path = plots_dir / flow_name / f"cluster_{cluster_id}_arrival_doc29.png"
+                out_path = plots_dir / flow_name / f"cluster_{cluster_id}_doc29.png"
                 _plot_doc29_arrival(df_flow, out_path, transformer)
 
     print(f"Backbone tracks written to {backbone_csv}")

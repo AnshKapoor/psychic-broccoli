@@ -38,9 +38,70 @@ variants:
     preprocessing:
       resampling:
         n_points: 50
-        method: "distance"
+        method: "time"
+      smoothing:
+        enabled: true
+        method: "savgol"
+        window_length: 11
+        polyorder: 3
+
+  - preprocessed_id: 5
+    preprocessing:
+      resampling:
+        n_points: 50
+        method: "time"
+      smoothing:
+        enabled: false
+        method: "none"
+
+  - preprocessed_id: 6
+    preprocessing:
+      resampling:
+        n_points: 50
+        method: "time"
+      smoothing:
+        enabled: true
+        method: "moving_average"
+        window_length: 7
+
+  - preprocessed_id: 7
+    preprocessing:
+      resampling:
+        n_points: 50
+        method: "time"
+      smoothing:
+        enabled: true
+        method: "median"
+        window_length: 7
+
+  - preprocessed_id: 8
+    preprocessing:
+      resampling:
+        n_points: 70
+        method: "time"
       smoothing:
         enabled: true
         method: "savgol"
         window_length: 9
         polyorder: 2
+
+  - preprocessed_id: 9
+    preprocessing:
+      resampling:
+        n_points: 70
+        method: "time"
+      smoothing:
+        enabled: true
+        method: "savgol"
+        window_length: 11
+        polyorder: 3
+
+  - preprocessed_id: 10
+    preprocessing:
+      resampling:
+        n_points: 50
+        method: "time"
+      smoothing:
+        enabled: true
+        method: "ewm"
+        window_length: 7

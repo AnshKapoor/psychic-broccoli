@@ -42,11 +42,13 @@ def weighted_mean(values: List[float], weights: List[int]) -> float:
 
 
 def _latest_preprocessed() -> Path | None:
-    csv_dir = Path("data") / "preprocessed"
-    if not csv_dir.exists():
-        return None
-    candidates = sorted(csv_dir.glob("preprocessed_*.csv"))
-    return candidates[-1] if candidates else None
+    for csv_dir in (Path("data") / "preprocessed", Path("output") / "preprocessed"):
+        if not csv_dir.exists():
+            continue
+        candidates = sorted(csv_dir.glob("preprocessed_*.csv"))
+        if candidates:
+            return candidates[-1]
+    return None
 
 
 def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) -> None:
@@ -84,9 +86,10 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
     log_lines: List[str] = []
 
     # Build experiment log header (human-readable).
+    run_start = datetime.now(timezone.utc)
     log_lines.append(f"Experiment: {experiment_name}")
     log_lines.append(f"Config: {cfg_path}")
-    log_lines.append(f"Run started (UTC): {datetime.now(timezone.utc).isoformat()}")
+    log_lines.append(f"Run started (UTC): {run_start.isoformat()}")
     log_lines.append(f"Method: {method}")
     log_lines.append(f"Distance metric: {distance_metric}")
     log_lines.append(f"Preprocessed CSV: {preprocessed_csv}")
@@ -127,6 +130,27 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
             # Build features/trajectories
             vector_cols = cfg.get("features", {}).get("vector_cols", ["x_utm", "y_utm"])
             X, trajs = build_feature_matrix(flow_df, vector_cols=vector_cols)
+            if X.size:
+                sample_idx = 0
+                sample_flight_id = None
+                unique_ids = flow_df["flight_id"].dropna().unique()
+                if len(unique_ids) > 0:
+                    sample_flight_id = int(unique_ids[0])
+                sample_vec = X[sample_idx]
+                sample_vec_str = np.array2string(
+                    sample_vec[: min(12, sample_vec.shape[0])],
+                    precision=3,
+                    separator=", ",
+                    threshold=12,
+                )
+                log_lines.append(
+                    f"  Input vector sample (flight_id={sample_flight_id}, len={sample_vec.shape[0]}): {sample_vec_str}"
+                )
+                if distance_metric in {"dtw", "frechet"} and trajs:
+                    sample_traj = trajs[sample_idx]
+                    log_lines.append(
+                        f"  Trajectory sample shape (for {distance_metric}): {sample_traj.shape}"
+                    )
 
             clusterer = get_clusterer(method)
             precomputed_needed = distance_metric in {"dtw", "frechet"}
@@ -218,6 +242,7 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
                     meta_cols.append(col)
             labeled = flow_df[meta_cols].drop_duplicates(subset=["flight_id"]).copy()
             labeled["cluster_id"] = labels
+            labeled["flow_label"] = flow_label
             label_path = output_dir / f"labels_{flow_name}.csv"
             labeled.to_csv(label_path, index=False)
             label_paths.append(label_path)
@@ -259,18 +284,18 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
         df_lab_all.to_csv(output_dir / "labels_ALL.csv", index=False)
         if "Runway" in df_lab_all.columns:
             counts = (
-                df_lab_all.groupby(["cluster_id", "Runway"])
+                df_lab_all.groupby(["flow_label", "cluster_id", "Runway"])
                 .size()
                 .reset_index(name="n_flights")
-                .sort_values(["cluster_id", "n_flights"], ascending=[True, False])
+                .sort_values(["flow_label", "cluster_id", "n_flights"], ascending=[True, True, False])
             )
             counts.to_csv(output_dir / "cluster_runway_counts.csv", index=False)
         if "aircraft_type_match" in df_lab_all.columns:
             counts = (
-                df_lab_all.groupby(["cluster_id", "aircraft_type_match"])
+                df_lab_all.groupby(["flow_label", "cluster_id", "aircraft_type_match"])
                 .size()
                 .reset_index(name="n_flights")
-                .sort_values(["cluster_id", "n_flights"], ascending=[True, False])
+                .sort_values(["flow_label", "cluster_id", "n_flights"], ascending=[True, True, False])
             )
             counts.to_csv(output_dir / "cluster_aircraft_type_counts.csv", index=False)
 
@@ -279,19 +304,26 @@ def run_experiment(cfg_path: Path, preprocessed_override: Path | None = None) ->
         df_metrics = pd.DataFrame(metrics_rows)
         df_metrics.to_csv(output_dir / "metrics_by_flow.csv", index=False)
         weight = df_metrics["n_flights"]
-        agg = {
-            "davies_bouldin": weighted_mean(df_metrics["davies_bouldin"].fillna(np.nan_to_num(np.nan)), weight)
-            if "davies_bouldin" in df_metrics
-            else np.nan,
-            "silhouette": weighted_mean(df_metrics["silhouette"].fillna(np.nan_to_num(np.nan)), weight)
-            if "silhouette" in df_metrics
-            else np.nan,
-            "calinski_harabasz": weighted_mean(df_metrics["calinski_harabasz"].fillna(np.nan_to_num(np.nan)), weight)
-            if "calinski_harabasz" in df_metrics
-            else np.nan,
-            "total_flights": int(weight.sum()),
-        }
+        agg = {"total_flights": int(weight.sum())}
+        for metric_name in ("davies_bouldin", "silhouette", "calinski_harabasz"):
+            if metric_name not in df_metrics:
+                agg[metric_name] = np.nan
+                continue
+            valid = df_metrics[metric_name].notna()
+            if not valid.any():
+                agg[metric_name] = np.nan
+                continue
+            agg[metric_name] = weighted_mean(
+                df_metrics.loc[valid, metric_name].tolist(),
+                df_metrics.loc[valid, "n_flights"].tolist(),
+            )
         pd.DataFrame([agg]).to_csv(output_dir / "metrics_global.csv", index=False)
+
+    # Append run completion metadata
+    run_end = datetime.now(timezone.utc)
+    elapsed = (run_end - run_start).total_seconds()
+    log_lines.append(f"Run finished (UTC): {run_end.isoformat()}")
+    log_lines.append(f"Elapsed seconds: {elapsed:.1f}")
 
     # Save resolved config
     (output_dir / "config_resolved.yaml").write_text(yaml.dump(cfg), encoding="utf-8")

@@ -116,12 +116,23 @@ def main() -> None:
 
     # Simple plots
     plt.style.use("seaborn-v0_8-whitegrid")
+    def _month_label(filename: str) -> str:
+        name = filename.replace("data_", "").replace(".joblib", "")
+        # Expected: 2022_april
+        parts = name.split("_", 1)
+        if len(parts) == 2:
+            return parts[1].capitalize()
+        return name.capitalize()
+
+    month_labels = [_month_label(f) for f in summary["file"]]
+
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.bar(summary["file"], summary["rows"], color="#4E79A7")
-    ax.set_title("ADS-B rows per monthly file")
+    ax.bar(month_labels, summary["rows"], color="#4E79A7", label="2022")
+    ax.set_title("ADS-B rows per month")
     ax.set_ylabel("rows")
-    ax.set_xlabel("file")
-    ax.tick_params(axis='x', rotation=30, labelsize=8)
+    ax.set_xlabel("month")
+    ax.legend(title="Year", loc="best")
+    ax.tick_params(axis="x", rotation=30, labelsize=8)
     fig.tight_layout()
     fig.savefig(outdir / "rows_by_month.png", dpi=200)
     plt.close(fig)

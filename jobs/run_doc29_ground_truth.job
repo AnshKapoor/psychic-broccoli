@@ -1,0 +1,73 @@
+#!/bin/bash -l
+#
+# ========= Phoenix / Slurm: Doc29 Ground Truth =========
+# Uses virtual environment: "psychic"
+# =======================================================
+
+#### ----- Slurm resources & naming -----
+#SBATCH --job-name=doc29_gt
+#SBATCH --partition=standard
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=24:00:00
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
+
+# Optional notifications:
+#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mail-user=a.kapoor@tu-braunschweig.de
+
+set -eo pipefail
+umask 027
+
+echo "[info] job=$SLURM_JOB_NAME id=$SLURM_JOB_ID node=$SLURM_JOB_NODELIST"
+echo "[info] part=$SLURM_JOB_PARTITION cpus=$SLURM_CPUS_PER_TASK mem=$SLURM_MEM_PER_NODE"
+
+# Usage:
+#   sbatch jobs/run_doc29_ground_truth.job \
+#     PREPROCESSED=output/preprocessed/preprocessed_1.csv \
+#     OUTDIR=noise_simulation/results_ground_truth/preprocessed_1 \
+#     BATCH=1000
+
+PREPROCESSED=${PREPROCESSED:-output/preprocessed/preprocessed_1.csv}
+OUTDIR=${OUTDIR:-noise_simulation/results_ground_truth/preprocessed_1}
+BATCH=${BATCH:-1000}
+
+# Project root (assumes you submit from repo root)
+PROJECT_ROOT=${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}
+cd "$PROJECT_ROOT"
+
+#### ----- Activate your venv -----
+VENV_PATH=${VENV_PATH:-"$HOME/venvs/psychic"}
+module purge
+module load lib/openssl/latest
+module load python/3.9.7
+
+if [ -f "${VENV_PATH}/bin/activate" ]; then
+  source "${VENV_PATH}/bin/activate"
+fi
+
+# Optional: fail early if wrong interpreter
+python - <<'PY'
+import sys
+assert sys.version_info >= (3,8), f"Need Python >=3.8, got {sys.version}"
+PY
+
+which python
+python --version
+
+# Limit threading to match Slurm allocation
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+
+mkdir -p logs
+
+srun python noise_simulation/run_doc29_ground_truth.py \
+  --preprocessed "${PREPROCESSED}" \
+  --matched-dir matched_trajectories \
+  --output-root "${OUTDIR}" \
+  --batch-size "${BATCH}"

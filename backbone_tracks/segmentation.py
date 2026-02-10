@@ -18,6 +18,7 @@ def segment_flights(
     time_gap_sec: float,
     distance_jump_m: float,
     min_points_per_flight: int,
+    split_on_identity: bool = True,
 ) -> pd.DataFrame:
     """
     Add a 'flight_id' column using Rules A (time gap), B (direction reset), and C (distance jump).
@@ -33,12 +34,18 @@ def segment_flights(
         prev_ts: pd.Timestamp | None = None
         prev_dist: float | None = None
         prev_prev_dist: float | None = None
+        prev_icao: str | None = None
+        prev_callsign: str | None = None
         current_id = next_flight_id
 
         for pos, row_idx in enumerate(indices):
             row = df_sorted.loc[row_idx]
             ts_curr = pd.to_datetime(row["timestamp"])
             dist_curr = float(row["dist_to_airport_m"])
+            icao_curr = str(row["icao24"]).strip().upper() if "icao24" in row and pd.notna(row["icao24"]) else None
+            callsign_curr = (
+                str(row["callsign"]).strip().upper() if "callsign" in row and pd.notna(row["callsign"]) else None
+            )
 
             new_flight = False
             # Rule A: time gap
@@ -56,6 +63,13 @@ def segment_flights(
             if prev_dist is not None and abs(dist_curr - prev_dist) > distance_jump_m:
                 new_flight = True
 
+            # Rule D: identity change (icao24/callsign)
+            if split_on_identity and pos > 0:
+                if icao_curr and prev_icao and icao_curr != prev_icao:
+                    new_flight = True
+                if callsign_curr and prev_callsign and callsign_curr != prev_callsign:
+                    new_flight = True
+
             if new_flight and pos > 0:
                 next_flight_id += 1
                 current_id = next_flight_id
@@ -65,6 +79,8 @@ def segment_flights(
             prev_prev_dist = prev_dist
             prev_dist = dist_curr
             prev_ts = ts_curr
+            prev_icao = icao_curr
+            prev_callsign = callsign_curr
 
         next_flight_id += 1
 

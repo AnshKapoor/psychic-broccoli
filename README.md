@@ -123,9 +123,18 @@ Purpose: Run parameter sweeps defined in a grid YAML.
 
 CLI:
 ```bash
-python scripts/run_experiment_grid.py --grid experiments/named_experiments.yaml
+python scripts/run_experiment_grid.py --grid experiments/experiment_grid.yaml
 ```
-VS Code launch: `Run Named Experiments Grid`
+VS Code launch: `Run Experiment Grid`
+
+#### `scripts/eda_raw_lengths.py`
+Purpose: Pre-assess raw flight length distribution before preprocessing filters.
+
+CLI:
+```bash
+python scripts/eda_raw_lengths.py -c config/backbone_full.yaml --outdir output/eda/raw_lengths
+```
+VS Code launch: `EDA Raw Flight Lengths`
 
 ### Visualization and reporting
 
@@ -138,14 +147,7 @@ python scripts/plot_experiment_results.py EXP77 --max-flights-per-cluster 30
 ```
 VS Code launch: `Plot Experiment Results` and `Generate Backbone Tracks`
 
-#### `scripts/plot_exp_latlon.py`
-Purpose: Cluster plots in lat/lon with composition summaries.
-
-CLI:
-```bash
-python scripts/plot_exp_latlon.py EXP30_kmeans6_optics_refine
-```
-VS Code launch: none
+Note: the legacy script `scripts/plot_exp_latlon.py` was archived to `legacy/scripts/`.
 
 #### `scripts/plot_backbone_tracks.py`
 Purpose: Generate backbone tracks per flow/cluster (lat/lon) and Doc29-style arrival overlays.
@@ -157,15 +159,6 @@ python scripts/plot_backbone_tracks.py --experiment EXP77 --arrival-scheme seven
 VS Code launch: `Plot Backbone Tracks (Lat/Lon)`
 
 ### Noise simulation (Doc29)
-
-#### `scripts/generate_backbone_tracks.py`
-Purpose: Build backbone tracks per flow from matched trajectories (legacy path for Doc29).
-
-CLI:
-```bash
-python scripts/generate_backbone_tracks.py --config config/backbone_legacy.yaml
-```
-VS Code launch: none
 
 #### `scripts/doc29_tracks.py`
 Purpose: Create Doc29 7-track layouts (center + offsets) from preprocessed data and optionally export groundtrack CSVs.
@@ -202,6 +195,17 @@ python noise_simulation/doc-29-implementation/main.py
 See `noise_simulation/doc-29-implementation/README.md` for model details and required assets.
 VS Code launch: none
 
+#### `noise_simulation/compare_experiment_totals.py`
+Purpose: Fair per-experiment totals comparison between clustered prediction and individual-flight ground truth.
+
+CLI:
+```bash
+python noise_simulation/compare_experiment_totals.py --summary noise_simulation/results/EXP001/summary_mse.csv --out noise_simulation/results/EXP001/aggregate_totals --subtracks-weighting weighted
+```
+Key outputs:
+- `overall_aligned_9points.csv` (9 receiver points side-by-side)
+- `overall_summary.json` (MAE/MSE/RMSE and average cumulative level delta)
+
 #### `scripts/plot_noise_results.py`
 Purpose: Plot noise simulation results from `Results_Python/*.csv`.
 
@@ -235,5 +239,11 @@ VS Code launch: none
 - `run_adsb_joblib_to_csv.job`: convert all joblib files in a directory (usage: `sbatch run_adsb_joblib_to_csv.job /path/to/joblib_dir`)
 - `run_merge_adsb_noise.job`: single-month noise matching
 - `run_add_noise_runway.job`: enrich matched CSVs with A/D and Runway
-- `jobs/run_backbone_clustering_full.job`: full backbone pipeline
-- `jobs/run_save_preprocessed.job`, `jobs/run_experiment_optics.job`, `jobs/run_experiment_grid.job`
+- `jobs/run_preprocessing_grid.job`: preprocessing grid
+- `jobs/run_experiment_grid.job`: experiment grid
+- `jobs/run_adsb_monthly_eda.job`: monthly ADS-B EDA
+- `jobs/run_doc29_ground_truth.job`: batched Doc29 ground truth
+- `jobs/run_doc29_experiment.job`: Doc29 experiment runner
+- `jobs/run_doc29_compare_totals.job`: totals comparison (cluster vs ground truth)
+
+Archived jobs/scripts are under `legacy/`.

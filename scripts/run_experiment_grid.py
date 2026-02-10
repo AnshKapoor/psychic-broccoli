@@ -17,6 +17,19 @@ if str(ROOT) not in sys.path:
 from experiments.runner import run_experiment
 
 
+def _is_experiment_complete(exp_dir: Path) -> bool:
+    """Return True if key outputs for an experiment exist."""
+    if not exp_dir.exists():
+        return False
+    required = [
+        exp_dir / "experiment_log.txt",
+        exp_dir / "metrics_global.csv",
+        exp_dir / "metrics_by_flow.csv",
+        exp_dir / "labels_ALL.csv",
+    ]
+    return all(p.exists() for p in required)
+
+
 def iter_param_grid(param_dict: dict) -> list[dict]:
     keys = []
     values = []
@@ -39,6 +52,7 @@ def main(grid_path: Path) -> None:
     grid = yaml.safe_load(grid_path.read_text(encoding="utf-8")) or {}
     experiments = grid.get("experiments", [])
     base_output = grid.get("output", {}).get("dir", "output")
+    skip_completed = bool(grid.get("output", {}).get("skip_completed", True))
     base_cfg_path = Path("config/backbone_full.yaml")
     base_cfg = yaml.safe_load(base_cfg_path.read_text(encoding="utf-8"))
 
@@ -80,14 +94,20 @@ def main(grid_path: Path) -> None:
                 cfg["output"]["experiment_name"] = explicit_name
             else:
                 cfg["output"]["experiment_name"] = exp_name
-            # Use provided preprocessed CSV if specified in grid
+            # Use provided preprocessed CSV from grid only when experiment doesn't override it.
             if "input" in grid and "preprocessed_csv" in grid["input"]:
-                cfg.setdefault("input", {})["preprocessed_csv"] = grid["input"]["preprocessed_csv"]
+                cfg.setdefault("input", {})
+                if "preprocessed_csv" not in cfg["input"]:
+                    cfg["input"]["preprocessed_csv"] = grid["input"]["preprocessed_csv"]
 
             # Write temp config and run
             tmp_cfg_path = Path(f".tmp_grid_cfg_{exp_name}_{idx}.yaml")
             tmp_cfg_path.write_text(yaml.dump(cfg), encoding="utf-8")
             try:
+                exp_dir = Path(base_output) / "experiments" / cfg["output"]["experiment_name"]
+                if skip_completed and _is_experiment_complete(exp_dir):
+                    print(f"[skip] {cfg['output']['experiment_name']} already complete.")
+                    continue
                 run_experiment(tmp_cfg_path)
             except Exception as exc:
                 print(f"[error] experiment failed: {cfg['output']['experiment_name']} -> {exc}", file=sys.stderr)

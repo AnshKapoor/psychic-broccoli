@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import logging
 import sys
 from pathlib import Path
 
@@ -30,6 +31,7 @@ def _deep_update(dst: dict, src: dict) -> dict:
 
 
 def main(grid_path: Path) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
     grid = yaml.safe_load(grid_path.read_text(encoding="utf-8")) or {}
     base_cfg_path = Path(grid.get("base_config", "config/backbone_full.yaml"))
     base_cfg = yaml.safe_load(base_cfg_path.read_text(encoding="utf-8")) or {}
@@ -38,6 +40,9 @@ def main(grid_path: Path) -> None:
     if not variants:
         raise ValueError("No variants found in preprocess grid.")
 
+    output_dir = Path(base_cfg.get("output", {}).get("dir", "data")) / "preprocessed"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     for idx, variant in enumerate(variants, start=1):
         cfg = copy.deepcopy(base_cfg)
         cfg = _deep_update(cfg, variant)
@@ -45,11 +50,21 @@ def main(grid_path: Path) -> None:
             cfg["output"] = {}
         if "preprocessed_id" in variant:
             cfg["output"]["preprocessed_id"] = variant["preprocessed_id"]
+        pre_id = cfg["output"].get("preprocessed_id")
+        if pre_id is not None:
+            out_path = output_dir / f"preprocessed_{int(pre_id)}.csv"
+            if out_path.exists():
+                logging.info("Skip %s (already exists)", out_path)
+                continue
 
         tmp_path = Path(f".tmp_preprocess_cfg_{idx}.yaml")
         tmp_path.write_text(yaml.dump(cfg), encoding="utf-8")
         try:
             save_preprocessed_main(str(tmp_path))
+            if pre_id is not None:
+                logging.info("Saved preprocessed_%s.csv", int(pre_id))
+        except Exception as exc:
+            logging.error("Preprocess variant %s failed: %s", idx, exc)
         finally:
             tmp_path.unlink(missing_ok=True)
 

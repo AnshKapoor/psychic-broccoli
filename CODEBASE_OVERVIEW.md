@@ -138,9 +138,9 @@ All accept (T, 2) or (T, 3) shaped arrays (2D or 3D trajectories)
 |--------|---------|
 | `save_preprocessed.py` | Saves preprocessed (smoothed, resampled) trajectories to CSV for downstream analysis |
 | `plot_experiment_results.py` | Plots cluster metrics and trajectories per experiment output folder |
-| `plot_exp_latlon.py` | Lat/lon cluster plots with composition summaries |
-| `visualize_backbone_tracks.py` | Visualizes backbone track CSV with optional flow filters |
-| `generate_backbone_tracks.py` | Legacy path for backbone track generation (archived workflow) |
+| `plot_exp_latlon_flows.py` | Lat/lon cluster plots split by selected flow labels |
+| `plot_backbone_tracks.py` | Visualizes backbone tracks in lat/lon with arrival scheme options |
+| `legacy/scripts/generate_backbone_tracks.py` | Archived legacy backbone generation path |
 | `doc29_tracks.py` | Creates Doc29 7-track layouts from preprocessed data; exports groundtrack CSVs |
 | `plot_noise_results.py` | Contour/heatmap plots of Doc29 noise simulation results |
 | `plot_metrics_doc29.py` | Metrics plots for Doc29 experiments |

@@ -12,6 +12,7 @@ segmentation:
   time_gap_sec: 120
   distance_jump_m: 600
   min_points_per_flight: 15
+  split_on_identity: true
 
 flows:
   # Use flow-based clustering by default.
@@ -21,6 +22,12 @@ flows:
 preprocessing:
   filter:
     max_airport_distance_km: 25
+    min_length_km: 9.35
+    allowed_runways: ["27R", "27L", "09R", "09L"]
+    simplify:
+      rdp_enabled: false
+      rdp_epsilon_m: 50
+      rdp_min_points: 10
   serial_column: "trajectory_serial"
   serial_start: 1
   smoothing:

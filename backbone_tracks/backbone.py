@@ -45,8 +45,12 @@ def compute_backbones(
                         "y_utm": np.percentile(step_df["y_utm"], p) if use_utm and "y_utm" in step_df else None,
                         "latitude": np.percentile(step_df["latitude"], p) if "latitude" in step_df else None,
                         "longitude": np.percentile(step_df["longitude"], p) if "longitude" in step_df else None,
-                        "altitude": np.percentile(step_df["altitude"], p),
-                        "dist_to_airport_m": np.percentile(step_df["dist_to_airport_m"], p),
+                        "altitude": np.percentile(step_df["altitude"], p)
+                        if "altitude" in step_df
+                        else None,
+                        "dist_to_airport_m": np.percentile(step_df["dist_to_airport_m"], p)
+                        if "dist_to_airport_m" in step_df
+                        else None,
                         "n_flights": n_flights,
                     }
                 )

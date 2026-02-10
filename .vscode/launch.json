@@ -26,6 +26,18 @@
             "cwd": "${workspaceFolder}"
         },
         {
+            "name": "Grid: Run Preprocess Grid (Skip Existing)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/run_preprocess_grid.py",
+            "args": [
+                "--grid",
+                "config/preprocess_grid.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
             "name": "Run Experiment Grid",
             "type": "debugpy",
             "request": "launch",
@@ -33,6 +45,18 @@
             "args": [
                 "--grid",
                 "experiments/experiment_grid.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Grid: Run Experiment Grid (Prompt)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/run_experiment_grid.py",
+            "args": [
+                "--grid",
+                "${input:experimentGridPath}"
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
@@ -81,6 +105,95 @@
             "cwd": "${workspaceFolder}"
         },
         {
+            "name": "Plot: Clustered Flows + Noise (Lat/Lon)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/plot_exp_latlon_flows.py",
+            "args": [
+                "${input:experimentName}",
+                "--flows",
+                "Start_09L",
+                "Start_09R",
+                "Start_27L",
+                "Start_27R",
+                "--max-flights-per-cluster",
+                "200",
+                "--include-noise"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Export KML (Experiment)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/export_experiment_kml.py",
+            "args": [
+                "--experiment",
+                "${input:experimentName}",
+                "--max-per-cluster",
+                "200",
+                "--include-noise",
+                "--include-runways"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "EDA Raw Flight Lengths",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/eda_raw_lengths.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml",
+                "--outdir",
+                "output/eda/raw_lengths"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "EDA Flight Counts",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/eda_flight_counts.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml",
+                "--outdir",
+                "output/eda/flight_counts"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "EDA Combo: Lengths + Flight Counts",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/run_eda_combo.py",
+            "args": [
+                "-c",
+                "config/backbone_full.yaml"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "EDA Monthly ADS-B (All Files)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/eda_adsb_monthly.py",
+            "args": [
+                "--input-dir",
+                "data/adsb",
+                "--outdir",
+                "output/eda/adsb_monthly"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
             "name": "Doc29 Automation (Experiment)",
             "type": "debugpy",
             "request": "launch",
@@ -122,6 +235,23 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
         }
+        ,
+        {
+            "name": "Doc29 Compare Totals (Fair)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/noise_simulation/compare_experiment_totals.py",
+            "args": [
+                "--summary",
+                "${input:summaryMseCsv}",
+                "--out",
+                "${input:totalsOut}",
+                "--subtracks-weighting",
+                "weighted"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        }
     ],
     "inputs": [
         {
@@ -147,6 +277,18 @@
             "type": "promptString",
             "description": "Ground truth output folder",
             "default": "noise_simulation/results_ground_truth/preprocessed_1"
+        },
+        {
+            "id": "summaryMseCsv",
+            "type": "promptString",
+            "description": "summary_mse.csv path",
+            "default": "noise_simulation/results/EXP001/summary_mse.csv"
+        },
+        {
+            "id": "totalsOut",
+            "type": "promptString",
+            "description": "Totals comparison output folder",
+            "default": "noise_simulation/results/EXP001/aggregate_totals"
         }
     ]
 }
